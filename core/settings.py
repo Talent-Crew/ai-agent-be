@@ -51,6 +51,13 @@ INSTALLED_APPS = [
     'interviews',  
 ]
 
+# REST Framework Configuration
+REST_FRAMEWORK = {
+    'DEFAULT_PERMISSION_CLASSES': [
+        'rest_framework.permissions.AllowAny',
+    ],
+}
+
 GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
 DEEPGRAM_API_KEY = os.getenv('DEEPGRAM_API_KEY')
 CENTRIFUGO_SECRET = os.getenv('CENTRIFUGO_TOKEN_HMAC_SECRET_KEY', 'talentcrew-secret-key-2026')
@@ -149,6 +156,10 @@ STATIC_ROOT = BASE_DIR / 'staticfiles'
 
 # WhiteNoise configuration
 STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
+
+# Media files (PDF reports, etc.)
+MEDIA_URL = '/media/'
+MEDIA_ROOT = BASE_DIR / 'media'
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/6.0/ref/settings/#default-auto-field
