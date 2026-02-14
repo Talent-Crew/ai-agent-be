@@ -10,6 +10,8 @@ from interviews.models import InterviewSession, JobPosting
 from .utils import generate_centrifugo_token
 from django.shortcuts import get_object_or_404
 from interviews.serializers import JobPostingSerializer, InterviewSessionSerializer
+from interviews.models import PerAnswerMetric
+from django.db.models import Avg
 
 
 class JobPostingListCreateView(generics.ListCreateAPIView):
@@ -81,3 +83,80 @@ def bootstrap_interview(request):
         "channel": f"interviews:interview:{session.id}",
         "status": "ready"
     })
+class EndInterviewSessionView(APIView):
+    """
+    POST /api/sessions/<session_id>/end/
+    Generates a comprehensive interview report with line-by-line analysis.
+    """
+    def post(self, request, session_id):
+        session = get_object_or_404(InterviewSession, id=session_id)
+        
+        # Pull all answers in chronological order
+        metrics = PerAnswerMetric.objects.filter(session=session).order_by('timestamp')
+        
+        if not metrics.exists():
+            return Response({
+                "session_id": str(session.id),
+                "candidate": session.candidate_name,
+                "overall_score": 0,
+                "result_summary": "INCOMPLETE",
+                "top_weaknesses": [],
+                "timeline": []
+            })
+        
+        # Calculate scores
+        avg_score = metrics.aggregate(Avg('confidence_score'))['confidence_score__avg'] or 0
+        final_score = int(avg_score * 10)
+        
+        # Check for Cheating Flags
+        cheating_count = metrics.filter(is_cheating_suspected=True).count()
+        if cheating_count > 0:
+            final_score = min(final_score, 30)
+
+        # Build the Line-by-Line Report
+        detailed_report = []
+        for m in metrics:
+            detailed_report.append({
+                "id": m.id,
+                "question": m.question_asked,
+                "answer": m.candidate_answer,
+                "score": m.confidence_score,
+                "critique": m.critique,
+                "ideal_answer": m.ideal_answer,
+                "concepts_missed": m.technical_concepts_missed,
+                "status": "PASS" if m.confidence_score and m.confidence_score >= 6 else "FAIL"
+            })
+
+        # Summary of the entire session
+        all_missed_concepts = []
+        for m in metrics:
+            all_missed_concepts.extend(m.technical_concepts_missed)
+
+        # Generate final recommendation
+        if cheating_count > 0:
+            result_summary = "REJECT - CHEATING SUSPECTED"
+        elif final_score >= 70:
+            result_summary = "HIRE"
+        elif final_score >= 50:
+            result_summary = "NEEDS REVIEW"
+        else:
+            result_summary = "REJECT"
+
+        response_data = {
+            "session_id": str(session.id),
+            "candidate": session.candidate_name,
+            "overall_score": final_score,
+            "result_summary": result_summary,
+            "top_weaknesses": list(set(all_missed_concepts))[:5],
+            "timeline": detailed_report,  # 🚀 This is the line-by-line report
+            "total_questions_answered": metrics.count(),
+            "cheating_flags_triggered": cheating_count
+        }
+
+        # Mark session as completed and save overall score
+        session.is_completed = True
+        session.overall_score = final_score
+        session.current_stage = 'completed'
+        session.save()
+
+        return Response(response_data)

@@ -46,6 +46,11 @@ class PerAnswerMetric(models.Model):
     confidence_score = models.IntegerField(null=True, blank=True) # 1-10
     evidence_extracted = models.TextField(null=True, blank=True)
     
+    # 🚀 NEW REPORT FIELDS
+    critique = models.TextField(null=True, blank=True)  # "Why they messed up"
+    ideal_answer = models.TextField(null=True, blank=True)  # "What they should have said"
+    technical_concepts_missed = models.JSONField(default=list)  # e.g. ["Indexing", "N+1"]
+    
     # Anti-cheating and fairness tracking
     is_cheating_suspected = models.BooleanField(default=False)
     cheating_reason = models.CharField(max_length=255, null=True, blank=True)
