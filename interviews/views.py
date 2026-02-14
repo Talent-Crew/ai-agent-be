@@ -2,14 +2,17 @@ from .models import InterviewSession
 from rest_framework.views import APIView
 from rest_framework import generics
 from rest_framework.response import Response
-from .models import JobPosting, InterviewSession
+from .models import JobPosting, InterviewSession, User
 from rest_framework.decorators import api_view, permission_classes
-from rest_framework.permissions import AllowAny
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from interviews.models import InterviewSession, JobPosting
 from .utils import generate_centrifugo_token
 from django.shortcuts import get_object_or_404
-from interviews.serializers import JobPostingSerializer, InterviewSessionSerializer
+from interviews.serializers import (
+    JobPostingSerializer, InterviewSessionSerializer,
+    UserSerializer, UserCreateSerializer, LoginSerializer, UserSessionSerializer
+)
 from interviews.models import PerAnswerMetric
 from django.db.models import Avg
 from django.template.loader import render_to_string
@@ -17,24 +20,42 @@ from django.http import HttpResponse, FileResponse
 from weasyprint import HTML, CSS
 from django.conf import settings
 from datetime import datetime
+from django.contrib.auth import login, logout
 import os
 
 
 class JobPostingListCreateView(generics.ListCreateAPIView):
     """
-    POST /api/jobs/ -> Company creates a new job & rubric
-    GET /api/jobs/  -> List all active jobs
+    POST /api/jobs/ -> Company admin creates a new job & rubric
+    GET /api/jobs/  -> List all jobs created by the logged-in admin
     """
     queryset = JobPosting.objects.all()
     serializer_class = JobPostingSerializer
+    
+    def get_queryset(self):
+        """Filter jobs to only show those created by the logged-in admin"""
+        if self.request.user.is_authenticated:
+            return JobPosting.objects.filter(created_by=self.request.user).order_by('-created_at')
+        return JobPosting.objects.none()
+    
+    def perform_create(self, serializer):
+        """Set the created_by field when creating a job"""
+        serializer.save(created_by=self.request.user if self.request.user.is_authenticated else None)
 
 class InterviewSessionCreateView(generics.CreateAPIView):
     """
-    POST /api/sessions/ -> Company generates an interview link for a candidate
+    POST /api/sessions/ -> Company admin creates an interview session for a candidate
     Payload: {"job_id": "uuid-string", "candidate_name": "John Doe"}
+    Returns the session_id that can be shared with the candidate
     """
     queryset = InterviewSession.objects.all()
     serializer_class = InterviewSessionSerializer
+    
+    def get_serializer_context(self):
+        """Pass request context to serializer"""
+        context = super().get_serializer_context()
+        context['request'] = self.request
+        return context
 
 class JoinInterviewSessionView(APIView):
     """
@@ -215,3 +236,82 @@ class DownloadPDFView(APIView):
         response = FileResponse(open(pdf_path, 'rb'), content_type='application/pdf')
         response['Content-Disposition'] = f'attachment; filename="Interview_Scorecard_{session.candidate_name.replace(" ", "_")}.pdf"'
         return response
+
+
+# ====== Authentication & User Management Views ======
+
+class UserCreateView(generics.CreateAPIView):
+    """
+    POST /api/users/
+    Create a new company admin user
+    Payload: {"email": "admin@company.com", "full_name": "Admin Name", "password": "secure123", "company_name": "Acme Inc"}
+    """
+    queryset = User.objects.all()
+    serializer_class = UserCreateSerializer
+    permission_classes = [AllowAny]  # In production, restrict this or remove after first admin
+
+
+class LoginView(APIView):
+    """
+    POST /api/auth/login/
+    Admin login endpoint
+    Payload: {"email": "admin@company.com", "password": "secure123"}
+    """
+    permission_classes = [AllowAny]
+    
+    def post(self, request):
+        serializer = LoginSerializer(data=request.data)
+        if serializer.is_valid():
+            user = serializer.validated_data['user']
+            login(request, user)
+            
+            return Response({
+                'message': 'Login successful',
+                'user': UserSerializer(user).data
+            })
+        
+        return Response(serializer.errors, status=400)
+
+
+class LogoutView(APIView):
+    """
+    POST /api/auth/logout/
+    Admin logout endpoint
+    """
+    permission_classes = [IsAuthenticated]
+    
+    def post(self, request):
+        logout(request)
+        return Response({'message': 'Logout successful'})
+
+
+class CurrentUserView(APIView):
+    """
+    GET /api/auth/me/
+    Get current logged-in admin details
+    """
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request):
+        serializer = UserSerializer(request.user)
+        return Response(serializer.data)
+
+
+class UserSessionsView(APIView):
+    """
+    GET /api/auth/sessions/
+    Get all interview sessions created by the logged-in admin
+    """
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request):
+        sessions = InterviewSession.objects.filter(
+            created_by=request.user
+        ).select_related('job').order_by('-started_at')
+        
+        serializer = UserSessionSerializer(sessions, many=True)
+        return Response({
+            'user': UserSerializer(request.user).data,
+            'sessions': serializer.data,
+            'total_sessions': sessions.count()
+        })
