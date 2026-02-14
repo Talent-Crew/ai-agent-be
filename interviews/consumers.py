@@ -16,20 +16,26 @@ class UnifiedInterviewConsumer(AsyncWebsocketConsumer):
         self.loop = asyncio.get_running_loop()
         self.brain = await asyncio.to_thread(InterviewerBrain, self.session_id)
         self.centrifugo = get_centrifugo_publisher()
-        self.dg_client = DeepgramClient(settings.DEEPGRAM_API_KEY)
+        
+        # 🚀 1. OFFICIAL DEEPGRAM KEEPALIVE CONFIG
+        config = DeepgramClientOptions(
+            options={"keepalive": "true"}
+        )
+        
+        # Initialize client with the KeepAlive config
+        self.dg_client = DeepgramClient(settings.DEEPGRAM_API_KEY, config)
         self.dg_connection = self.dg_client.listen.live.v("1")
 
-        # 🚀 1. JUST A SIMPLE BUFFER NOW (No silence watcher!)
+        # The text buffer (Wait for "Done Speaking" button)
         self.transcript_buffer = ""
 
         def on_transcript(self_dg, result, **kwargs):
             sentence = result.channel.alternatives[0].transcript
             
-            # Only append finalized chunks that contain text
+            # Only append finalized chunks that contain actual text
             if len(sentence) == 0 or not result.is_final:
                 return
                 
-            # 🚀 2. Continuously build the paragraph
             self.transcript_buffer += sentence + " "
             logger.info(f"📝 Captured so far: {sentence}")
 
@@ -40,8 +46,7 @@ class UnifiedInterviewConsumer(AsyncWebsocketConsumer):
             language="en-US", 
             interim_results=True,
             smart_format=True,
-            # We don't care about utterance_end_ms anymore because we manually trigger
-            endpointing="100" # Keep this low so Deepgram sends finalized text quickly
+            endpointing="100" # Low endpointing because we manually control the flow now
         )
         
         try:
@@ -50,6 +55,25 @@ class UnifiedInterviewConsumer(AsyncWebsocketConsumer):
             await self.accept()
             logger.info(f"✅ Deepgram Pipeline Active: {self.session_id}")
             
+            # 🚀 2. THE MANUAL HEARTBEAT FAILSAFE
+            # This resets Deepgram's 10-second death timer while Gemini is thinking
+            async def keep_alive_pinger():
+                while True:
+                    await asyncio.sleep(3) # Ping every 3 seconds
+                    try:
+                        if hasattr(self, 'dg_connection'):
+                            # Send explicit JSON heartbeat text-frame to Deepgram
+                            await asyncio.to_thread(
+                                self.dg_connection.send, 
+                                json.dumps({"type": "KeepAlive"})
+                            )
+                    except Exception:
+                        break # Stop pinging gracefully if the connection closes naturally
+
+            # Start the heartbeat!
+            asyncio.run_coroutine_threadsafe(keep_alive_pinger(), self.loop)
+            
+            # Start the actual interview flow
             asyncio.run_coroutine_threadsafe(
                 self.start_interview_flow(),
                 self.loop
