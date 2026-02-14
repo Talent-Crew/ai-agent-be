@@ -9,11 +9,17 @@ class JobPostingSerializer(serializers.ModelSerializer):
 
     def validate_rubric_template(self, value):
         """Ensure the frontend sends the fixed fields we expect."""
-        required_keys = ['primary_language', 'experience_level', 'core_skills']
+        required_keys = ['languages', 'experience_level', 'core_skills']
         
         for key in required_keys:
             if key not in value:
                 raise serializers.ValidationError(f"Missing required fixed field: {key}")
+        
+        if not isinstance(value.get('languages'), list):
+            raise serializers.ValidationError("languages must be a list of strings.")
+        
+        if not value.get('languages'):
+            raise serializers.ValidationError("languages list cannot be empty.")
         
         if not isinstance(value.get('core_skills'), list):
             raise serializers.ValidationError("core_skills must be a list of strings.")

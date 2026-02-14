@@ -65,7 +65,12 @@ def bootstrap_interview(request):
         job = JobPosting.objects.create(
             title="Python Developer", 
             stack=["Python", "Django"],
-            rubric_template={"focus": "decorators and memory management"}
+            rubric_template={
+                "languages": ["Python", "JavaScript"],
+                "experience_level": "Mid-Level",
+                "core_skills": ["Decorators", "Memory Management", "Async Programming"],
+                "evaluation_focus": ["Technical Depth", "Problem Solving"]
+            }
         )
     
     # 2. Create the unique interview session
