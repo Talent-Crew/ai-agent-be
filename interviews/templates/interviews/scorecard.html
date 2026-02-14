@@ -1,0 +1,587 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Interview Scorecard - {{ candidate_name }}</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700;800&display=swap');
+        
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            line-height: 1.6;
+            color: #1a1a1a;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 40px 20px;
+        }
+        
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            overflow: hidden;
+        }
+        
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 50px 40px;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .header::before {
+            content: '';
+            position: absolute;
+            top: -50%;
+            right: -50%;
+            width: 200%;
+            height: 200%;
+            background: radial-gradient(circle, rgba(255,255,255,0.1) 0%, transparent 70%);
+            animation: pulse 15s ease-in-out infinite;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.1); }
+        }
+        
+        .header-content {
+            position: relative;
+            z-index: 1;
+        }
+        
+        .company-logo {
+            font-size: 32px;
+            font-weight: 800;
+            letter-spacing: -1px;
+            margin-bottom: 10px;
+        }
+        
+        .report-title {
+            font-size: 18px;
+            font-weight: 300;
+            opacity: 0.9;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+        }
+        
+        .candidate-section {
+            padding: 40px;
+            border-bottom: 2px solid #f0f0f0;
+        }
+        
+        .candidate-name {
+            font-size: 36px;
+            font-weight: 700;
+            color: #1a1a1a;
+            margin-bottom: 5px;
+        }
+        
+        .job-title {
+            font-size: 18px;
+            color: #666;
+            margin-bottom: 25px;
+        }
+        
+        .meta-info {
+            display: flex;
+            gap: 30px;
+            flex-wrap: wrap;
+        }
+        
+        .meta-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 14px;
+            color: #555;
+        }
+        
+        .meta-icon {
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-size: 10px;
+            font-weight: bold;
+        }
+        
+        .score-overview {
+            padding: 40px;
+            background: linear-gradient(135deg, #f8f9ff 0%, #fef6ff 100%);
+            border-bottom: 2px solid #f0f0f0;
+        }
+        
+        .score-grid {
+            display: grid;
+            grid-template-columns: 2fr 1fr;
+            gap: 30px;
+            margin-bottom: 30px;
+        }
+        
+        .score-main {
+            display: flex;
+            align-items: center;
+            gap: 25px;
+        }
+        
+        .score-circle {
+            width: 140px;
+            height: 140px;
+            border-radius: 50%;
+            background: white;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 10px 30px rgba(102, 126, 234, 0.3);
+            position: relative;
+        }
+        
+        .score-circle::before {
+            content: '';
+            position: absolute;
+            inset: -5px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            z-index: -1;
+            opacity: 0.3;
+        }
+        
+        .score-value {
+            font-size: 48px;
+            font-weight: 800;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        
+        .score-label {
+            font-size: 12px;
+            color: #666;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            font-weight: 600;
+        }
+        
+        .score-details h3 {
+            font-size: 16px;
+            font-weight: 600;
+            margin-bottom: 10px;
+            color: #1a1a1a;
+        }
+        
+        .score-details p {
+            color: #666;
+            font-size: 14px;
+            line-height: 1.6;
+        }
+        
+        .recommendation-badge {
+            padding: 20px 30px;
+            border-radius: 15px;
+            text-align: center;
+            font-weight: 700;
+            font-size: 20px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
+        }
+        
+        .badge-hire {
+            background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
+            color: white;
+        }
+        
+        .badge-reject {
+            background: linear-gradient(135deg, #ee0979 0%, #ff6a00 100%);
+            color: white;
+        }
+        
+        .badge-review {
+            background: linear-gradient(135deg, #f2994a 0%, #f2c94c 100%);
+            color: white;
+        }
+        
+        .weaknesses-section {
+            padding: 40px;
+            border-bottom: 2px solid #f0f0f0;
+        }
+        
+        .section-title {
+            font-size: 24px;
+            font-weight: 700;
+            margin-bottom: 20px;
+            color: #1a1a1a;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .section-icon {
+            width: 35px;
+            height: 35px;
+            border-radius: 10px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-size: 18px;
+        }
+        
+        .weakness-tags {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+        }
+        
+        .weakness-tag {
+            padding: 10px 18px;
+            background: #fff0f0;
+            border: 2px solid #ffdddd;
+            border-radius: 25px;
+            color: #d63031;
+            font-size: 14px;
+            font-weight: 600;
+        }
+        
+        .no-weaknesses {
+            padding: 20px;
+            background: #f0fff4;
+            border: 2px solid #c6f6d5;
+            border-radius: 10px;
+            color: #22543d;
+            text-align: center;
+            font-weight: 600;
+        }
+        
+        .timeline-section {
+            padding: 40px;
+        }
+        
+        .timeline {
+            position: relative;
+            padding-left: 40px;
+        }
+        
+        .timeline::before {
+            content: '';
+            position: absolute;
+            left: 15px;
+            top: 0;
+            bottom: 0;
+            width: 3px;
+            background: linear-gradient(180deg, #667eea 0%, #764ba2 100%);
+        }
+        
+        .timeline-item {
+            position: relative;
+            margin-bottom: 40px;
+            page-break-inside: avoid;
+        }
+        
+        .timeline-item::before {
+            content: '';
+            position: absolute;
+            left: -33px;
+            top: 8px;
+            width: 15px;
+            height: 15px;
+            border-radius: 50%;
+            background: white;
+            border: 3px solid #667eea;
+            box-shadow: 0 2px 10px rgba(102, 126, 234, 0.3);
+        }
+        
+        .qa-card {
+            background: white;
+            border: 2px solid #f0f0f0;
+            border-radius: 15px;
+            padding: 25px;
+            transition: all 0.3s ease;
+        }
+        
+        .qa-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 15px;
+        }
+        
+        .question-label {
+            font-size: 12px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: #667eea;
+            margin-bottom: 8px;
+        }
+        
+        .question-text {
+            font-size: 16px;
+            font-weight: 600;
+            color: #1a1a1a;
+            line-height: 1.5;
+            margin-bottom: 15px;
+        }
+        
+        .score-badge {
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-weight: 700;
+            font-size: 14px;
+            white-space: nowrap;
+        }
+        
+        .score-excellent { background: #d4edda; color: #155724; }
+        .score-good { background: #d1ecf1; color: #0c5460; }
+        .score-average { background: #fff3cd; color: #856404; }
+        .score-poor { background: #f8d7da; color: #721c24; }
+        
+        .answer-section {
+            margin-top: 15px;
+            padding: 15px;
+            background: #f8f9fa;
+            border-left: 4px solid #667eea;
+            border-radius: 8px;
+        }
+        
+        .answer-label {
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: #666;
+            margin-bottom: 8px;
+        }
+        
+        .answer-text {
+            color: #333;
+            font-size: 14px;
+            line-height: 1.6;
+        }
+        
+        .critique-section {
+            margin-top: 15px;
+            padding: 15px;
+            background: #fff9f0;
+            border-left: 4px solid #f2994a;
+            border-radius: 8px;
+        }
+        
+        .ideal-section {
+            margin-top: 15px;
+            padding: 15px;
+            background: #f0fff4;
+            border-left: 4px solid #38ef7d;
+            border-radius: 8px;
+        }
+        
+        .concepts-missed {
+            margin-top: 15px;
+        }
+        
+        .concept-chips {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-top: 8px;
+        }
+        
+        .concept-chip {
+            padding: 6px 14px;
+            background: #fff0f0;
+            border: 1px solid #ffdddd;
+            border-radius: 15px;
+            font-size: 12px;
+            color: #d63031;
+            font-weight: 600;
+        }
+        
+        .footer {
+            padding: 30px 40px;
+            background: #f8f9fa;
+            text-align: center;
+            font-size: 12px;
+            color: #666;
+        }
+        
+        .footer-divider {
+            width: 60px;
+            height: 3px;
+            background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+            margin: 0 auto 15px;
+            border-radius: 3px;
+        }
+        
+        @media print {
+            body {
+                background: white;
+                padding: 0;
+            }
+            
+            .container {
+                box-shadow: none;
+                border-radius: 0;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <div class="header">
+            <div class="header-content">
+                <div class="company-logo">TalentCrew AI</div>
+                <div class="report-title">Technical Interview Scorecard</div>
+            </div>
+        </div>
+        
+        <!-- Candidate Information -->
+        <div class="candidate-section">
+            <h1 class="candidate-name">{{ candidate_name }}</h1>
+            <div class="job-title">{{ job_title }}</div>
+            <div class="meta-info">
+                <div class="meta-item">
+                    <div class="meta-icon">📅</div>
+                    <span>{{ date }}</span>
+                </div>
+                <div class="meta-item">
+                    <div class="meta-icon">⏱</div>
+                    <span>Session ID: {{ session_id }}</span>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Score Overview -->
+        <div class="score-overview">
+            <div class="score-grid">
+                <div class="score-main">
+                    <div class="score-circle">
+                        <div class="score-value">{{ overall_score }}</div>
+                        <div class="score-label">Overall Score</div>
+                    </div>
+                    <div class="score-details">
+                        <h3>Performance Summary</h3>
+                        <p>The candidate achieved an overall score of {{ overall_score }}/100 based on technical depth, problem-solving ability, and communication clarity across {{ total_questions }} questions.</p>
+                    </div>
+                </div>
+                <div>
+                    {% if result_summary == "HIRE" %}
+                        <div class="recommendation-badge badge-hire">✓ Recommend Hire</div>
+                    {% elif result_summary == "REJECT" %}
+                        <div class="recommendation-badge badge-reject">✗ Not Recommended</div>
+                    {% else %}
+                        <div class="recommendation-badge badge-review">⚠ Needs Review</div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+        
+        <!-- Top Weaknesses -->
+        <div class="weaknesses-section">
+            <h2 class="section-title">
+                <span class="section-icon">⚠️</span>
+                Areas for Improvement
+            </h2>
+            {% if top_weaknesses %}
+                <div class="weakness-tags">
+                    {% for weakness in top_weaknesses %}
+                        <div class="weakness-tag">{{ weakness }}</div>
+                    {% endfor %}
+                </div>
+            {% else %}
+                <div class="no-weaknesses">✨ No significant weaknesses identified! Strong performance across all areas.</div>
+            {% endif %}
+        </div>
+        
+        <!-- Question Timeline -->
+        <div class="timeline-section">
+            <h2 class="section-title">
+                <span class="section-icon">📝</span>
+                Question-by-Question Analysis
+            </h2>
+            <div class="timeline">
+                {% for qa in timeline %}
+                <div class="timeline-item">
+                    <div class="qa-card">
+                        <div class="qa-header">
+                            <div style="flex: 1;">
+                                <div class="question-label">Question {{ forloop.counter }}</div>
+                                <div class="question-text">{{ qa.question }}</div>
+                            </div>
+                            <div>
+                                {% if qa.score >= 8 %}
+                                    <div class="score-badge score-excellent">{{ qa.score }}/10 Excellent</div>
+                                {% elif qa.score >= 6 %}
+                                    <div class="score-badge score-good">{{ qa.score }}/10 Good</div>
+                                {% elif qa.score >= 4 %}
+                                    <div class="score-badge score-average">{{ qa.score }}/10 Average</div>
+                                {% else %}
+                                    <div class="score-badge score-poor">{{ qa.score }}/10 Poor</div>
+                                {% endif %}
+                            </div>
+                        </div>
+                        
+                        <div class="answer-section">
+                            <div class="answer-label">Candidate's Answer</div>
+                            <div class="answer-text">{{ qa.answer }}</div>
+                        </div>
+                        
+                        {% if qa.critique %}
+                        <div class="critique-section">
+                            <div class="answer-label">💡 Evaluation & Critique</div>
+                            <div class="answer-text">{{ qa.critique }}</div>
+                        </div>
+                        {% endif %}
+                        
+                        {% if qa.ideal_answer %}
+                        <div class="ideal-section">
+                            <div class="answer-label">✨ Ideal Answer Example</div>
+                            <div class="answer-text">{{ qa.ideal_answer }}</div>
+                        </div>
+                        {% endif %}
+                        
+                        {% if qa.concepts_missed %}
+                        <div class="concepts-missed">
+                            <div class="answer-label">🎯 Technical Concepts Missed</div>
+                            <div class="concept-chips">
+                                {% for concept in qa.concepts_missed %}
+                                    <div class="concept-chip">{{ concept }}</div>
+                                {% endfor %}
+                            </div>
+                        </div>
+                        {% endif %}
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+        
+        <!-- Footer -->
+        <div class="footer">
+            <div class="footer-divider"></div>
+            <p><strong>TalentCrew AI Interview System</strong></p>
+            <p>Confidential • Generated on {{ date }}</p>
+            <p style="margin-top: 10px; font-size: 11px; opacity: 0.7;">
+                This report was generated using AI-powered interview analysis. All scores and recommendations should be reviewed by human recruiters before making final hiring decisions.
+            </p>
+        </div>
+    </div>
+</body>
+</html>

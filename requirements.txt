@@ -14,3 +14,7 @@ django-cors-headers
 aiohttp
 pyjwt
 python-dotenv
+
+# PDF Generation
+weasyprint>=60.0
+pillow>=10.0.0
