@@ -15,7 +15,7 @@ class InterviewerBrain:
         self.model_id = "gemini-2.5-flash"
         
         rubric = self.session.job.rubric_template
-        self.language = rubric.get('primary_language', 'General Programming')
+        self.languages = rubric.get('languages', ['General Programming'])
         self.level = rubric.get('experience_level', 'Mid-Level')
         self.core_skills = rubric.get('core_skills', ['Core Concepts'])
         self.focus = rubric.get('evaluation_focus', ['Understanding'])
@@ -34,24 +34,27 @@ class InterviewerBrain:
     def get_instructions(self):
         skills_str = ", ".join(self.core_skills)
         focus_str = ", ".join(self.focus)
+        languages_str = ", ".join(self.languages)
         return (
             f"You are a dynamic technical interviewer hiring a {self.level} {self.session.job.title}. "
             f"Candidate: {self.session.candidate_name}. "
-            f"Primary Language: {self.language}. "
+            f"Languages/Technologies to test: {languages_str}. "
             f"Core Skills to cover: {skills_str}. "
             f"Evaluation Focus: {focus_str}. "
             "INSTRUCTIONS: "
             "1. Do not interrogate. Have a natural, flowing conversation. "
-            "2. If they don't know a specific skill, pivot smoothly to the next skill in the list. "
-            "3. Ask exactly ONE question at a time. Keep it conversational and under 2 sentences."
+            "2. Ask questions that cover ALL the languages/technologies listed. Mix language-specific and cross-language questions naturally. "
+            "3. If they don't know a specific skill or language, pivot smoothly to the next skill or language in the list. "
+            "4. Ask exactly ONE question at a time. Keep it conversational and under 2 sentences."
         )
 
     async def generate_intro(self):
         logger.info("🎬 Generating Interview Intro")
+        languages_str = ", ".join(self.languages)
         prompt = (
             f"SYSTEM COMMAND: The interview has just started. Greet {self.session.candidate_name}. "
             f"Introduce yourself as the AI Interviewer for the {self.session.job.title} role. "
-            f"Briefly mention we'll be discussing {self.language} and core backend skills. "
+            f"Briefly mention we'll be discussing {languages_str} and related technical skills. "
             "End by asking if they are ready to begin. Keep it natural and under 3 short sentences."
         )
         response = await asyncio.to_thread(self.chat.send_message, prompt)
