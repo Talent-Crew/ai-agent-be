@@ -5,6 +5,11 @@ import uuid
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 from .models import JobPosting, InterviewSession
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.permissions import AllowAny
+from rest_framework.response import Response
+from interviews.models import InterviewSession, JobPosting
+from .utils import generate_centrifugo_token
 
 def get_interview_token(request, session_id):
     try:
@@ -42,3 +47,34 @@ def create_test_session(request):
     )
     
     return Response({"session_id": str(session.id)})
+
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def bootstrap_interview(request):
+    # 1. Use 'JobPosting' instead of 'Job'
+    job, _ = JobPosting.objects.get_or_create(
+        title="Python Developer", 
+        defaults={
+            "stack": ["Python", "Django"],
+            "rubric_template": {
+                "focus": "Focus on decorators and memory management."
+            }
+        }
+    )
+    
+    # 2. Create the session (Ensure field names match your model)
+    session = InterviewSession.objects.create(
+        job=job,
+        candidate_name="Web User" # candidate_name is required in your model
+    )
+    
+    # 3. Generate token
+    token = generate_centrifugo_token(user_id="user_1")
+    
+    return Response({
+        "session_id": str(session.id),
+        "token": token,
+        "channel": f"interviews:interview:{session.id}",
+        "status": "ready"
+    })
