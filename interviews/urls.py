@@ -6,5 +6,6 @@ urlpatterns = [
     path('api/sessions/', views.InterviewSessionCreateView.as_view(), name='session-create'),
     path('api/sessions/<uuid:session_id>/connect/', views.JoinInterviewSessionView.as_view(), name='session-connect'),
     path('api/sessions/<uuid:session_id>/end/', views.EndInterviewSessionView.as_view(), name='session-end'),
+    path('api/sessions/<uuid:session_id>/report/', views.GetInterviewReportView.as_view(), name='session-report'),
     path('test/bootstrap/', views.bootstrap_interview, name='test-bootstrap'),
 ]

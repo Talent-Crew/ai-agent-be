@@ -86,12 +86,7 @@ def bootstrap_interview(request):
 class EndInterviewSessionView(APIView):
     def post(self, request, session_id):
         session = get_object_or_404(InterviewSession, id=session_id)
-        
-        # 1. Close the session
-        session.is_completed = True
-        session.current_stage = 'completed'
-        session.save()
-        
+
         metrics = PerAnswerMetric.objects.filter(session=session).order_by('timestamp')
         
         # 2. Defensive check: What if no metrics saved?
@@ -106,6 +101,10 @@ class EndInterviewSessionView(APIView):
 
         avg_score = metrics.aggregate(Avg('confidence_score'))['confidence_score__avg'] or 0
         final_score = int(avg_score * 10)
+        session.is_completed = True
+        session.current_stage = 'completed'
+        session.overall_score = final_score
+        session.save()
 
         # 3. Build Timeline defensively
         timeline = []
@@ -129,4 +128,57 @@ class EndInterviewSessionView(APIView):
             "result_summary": "HIRE" if final_score >= 70 else "REJECT",
             "top_weaknesses": list(set(all_missed))[:5],
             "timeline": timeline
+        })
+
+class GetInterviewReportView(APIView):
+    """
+    GET /api/sessions/<session_id>/report/
+    Retrieves the interview report for a completed session.
+    """
+    def get(self, request, session_id):
+        session = get_object_or_404(InterviewSession, id=session_id)
+        
+        metrics = PerAnswerMetric.objects.filter(session=session).order_by('timestamp')
+        
+        # If no metrics exist
+        if not metrics.exists():
+            return Response({
+                "candidate": session.candidate_name,
+                "overall_score": session.overall_score or 0,
+                "result_summary": "INCOMPLETE" if not session.is_completed else "NO DATA",
+                "top_weaknesses": [],
+                "timeline": []
+            })
+        
+        # Calculate score (or use stored one if available)
+        if session.overall_score is not None:
+            final_score = session.overall_score
+        else:
+            avg_score = metrics.aggregate(Avg('confidence_score'))['confidence_score__avg'] or 0
+            final_score = int(avg_score * 10)
+        
+        # Build Timeline
+        timeline = []
+        all_missed = []
+        for m in metrics:
+            missed = m.technical_concepts_missed or []
+            all_missed.extend(missed)
+            timeline.append({
+                "id": m.id,
+                "question": m.question_asked,
+                "answer": m.candidate_answer,
+                "score": m.confidence_score,
+                "critique": m.critique or "No specific critique available.",
+                "ideal_answer": m.ideal_answer or "No ideal answer provided.",
+                "concepts_missed": missed
+            })
+        
+        return Response({
+            "candidate": session.candidate_name,
+            "overall_score": final_score,
+            "result_summary": "HIRE" if final_score >= 70 else "REJECT",
+            "top_weaknesses": list(set(all_missed))[:5],
+            "timeline": timeline,
+            "is_completed": session.is_completed,
+            "started_at": session.started_at.isoformat() if session.started_at else None
         })
