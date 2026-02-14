@@ -76,135 +76,137 @@ class InterviewerBrain:
 
     async def get_answer(self, user_text, pause_duration=0):
         try:
-            # 1. ALWAYS Grade the previous response first
-            if self.last_question_asked:
-                history_context = await asyncio.to_thread(self._get_history_context)
-                eval_data = await self._grade_answer(self.last_question_asked, user_text, pause_duration, history_context)
-                
-                score = eval_data.get('understanding_score', 0)
-                explainability = eval_data.get('explainability_score', 0)
-                needs_clarification = eval_data.get('needs_clarification', False)
-                is_off_topic = eval_data.get('is_off_topic', False)
-                is_cheating = eval_data.get('is_cheating', False)
-
-                # 📊 LOG GEMINI'S EVALUATION RESULTS
-                logger.info(f"📊 GEMINI EVALUATION | Understanding: {score}/10 | Explainability: {explainability}/10 | Cheating: {is_cheating} | Off-Topic: {is_off_topic} | Needs Clarification: {needs_clarification}")
-                if eval_data.get('evidence_extracted'):
-                    logger.info(f"💬 Evidence Quote: \"{eval_data.get('evidence_extracted')}\"")
-                
-                # Save the score so we can see how many skills they've actually answered
-                asyncio.create_task(
-                    self._save_background_metrics(self.last_question_asked, user_text, eval_data, score)
-                )
-
-            # 2. Increment turn count AFTER grading
+            # Increment turn count first
             self.turn_count += 1
 
-            # 3. SMART EXIT: Check Turn Count AND Session Health
-            # We only end if we've hit max turns OR if the candidate is 
-            # repeatedly failing to answer across different topics.
+            # Check if interview should end
             if self.turn_count >= self.max_turns:
                 logger.info(f"🏁 INTERVIEW COMPLETE | Total Turns: {self.turn_count}")
                 return "FINISH_INTERVIEW: It's been great chatting with you! We've covered a wide range of topics. I'll pass my notes over to the team, and they'll be in touch. Do you have any final questions?"
 
-            # 4. HANDLING "NOT REALLY" / WEAK ANSWERS / CHEATING
-            # If they say "Not really," don't count it as a full technical turn. 
-            # Pivot to a new skill and keep the interview going.
-            if self.last_question_asked:
-                if needs_clarification:
-                    logger.info("🔄 Candidate requested clarification.")
-                    self.turn_count -= 1  # Don't count clarification requests
-                    directive = "The candidate asked for clarification. Rephrase the previous question simply."
-                
-                elif is_cheating:
-                    logger.warning(f"🚨 CHEATING SUSPECTED | Score: {score}/10 | Pause Duration: {pause_duration}s | Answer: \"{user_text[:100]}...\"")
-                    directive = "The candidate's answer sounded unnatural, like it was read from a script or ChatGPT. Call them out gently but firmly. Say something like 'Can you explain that in your own words?' or ask a highly specific follow-up about the exact mechanics of what they just read."
-                
-                elif is_off_topic:
-                    logger.warning(f"🚫 CANDIDATE WENT OFF-TOPIC | Score: {score}/10")
-                    directive = "The candidate gave a completely irrelevant answer. Be politely stern: 'Please keep your answers focused on the technical requirements for this role.' Then ask a new technical question about a DIFFERENT core skill."
-                
-                elif score < 3:
-                    logger.info(f"⚠️ WEAK/NO ANSWER | Score: {score}/10 | Pivoting to new skill")
-                    directive = "The candidate doesn't know this topic. Say something encouraging like 'No worries!' then PIVOT to a COMPLETELY DIFFERENT skill from the core skills list to give them another chance."
-                
-                else:
-                    logger.info(f"✅ VALID ANSWER | Score: {score}/10")
-                    if score >= 8:
-                        self.current_topic_drill_depth += 1
-                        if self.current_topic_drill_depth >= 2:
-                            directive = "Strong answer! Acknowledge it briefly, then pivot to a DIFFERENT core skill."
-                            self.current_topic_drill_depth = 0
-                        else:
-                            directive = "Great technical answer. Ask one quick follow-up to go slightly deeper, then we'll move on."
-                    else:
-                        directive = "The candidate gave a valid answer. Acknowledge it, then pivot to a new skill to gather more evidence."
-                        self.current_topic_drill_depth = 0
-            else:
-                directive = "Start the technical interview. Ask an open-ended question about their experience with one of the core skills."
-
-            # 5. Generate next question
-            ai_spoken_response = await self._generate_next_question(directive, user_text)
-            self.last_question_asked = ai_spoken_response
+            # Get conversation history
+            history_context = await asyncio.to_thread(self._get_history_context)
             
-            return ai_spoken_response
+            # 🚀 SINGLE-PASS BRAIN: LLM decides everything in ONE call
+            skills_str = ", ".join(self.core_skills)
+            languages_str = ", ".join(self.languages)
+            
+            prompt = (
+                f"Candidate: {self.session.candidate_name}\n"
+                f"Languages/Technologies: {languages_str}\n"
+                f"Core Skills to Cover: {skills_str}\n"
+                f"Current Topic Drill Depth: {self.current_topic_drill_depth}\n"
+                f"Time taken before candidate started speaking: {pause_duration}s\n\n"
+                f"--- PREVIOUS CONVERSATION HISTORY ---\n{history_context}\n"
+                f"--- CURRENT EXCHANGE ---\n"
+                f"Last Question: {self.last_question_asked or 'This is the first question'}\n"
+                f"Candidate Answer: {user_text}\n\n"
+                "YOUR TASK: Evaluate the answer AND generate the next question in ONE RESPONSE.\n\n"
+                "STEP 1: GRADE THE ANSWER (1-10 for understanding, 1-10 for explainability)\n"
+                "- Score 8-10 (EXCELLENT): Specific architectural decisions, real-world tools, clear problem-solving.\n"
+                "- Score 5-7 (AVERAGE): Technically correct but shallow.\n"
+                "- Score 1-4 (POOR): Incorrect, dodges question, or zero technical knowledge.\n"
+                "- is_off_topic: TRUE if answer is nonsense or completely unrelated.\n"
+                "- is_cheating: TRUE if pause_duration > 8s AND answer sounds robotic/textbook, OR if massive unnatural spike in fluency compared to history.\n"
+                "- needs_clarification: TRUE ONLY if they explicitly ask you to repeat/clarify.\n\n"
+                "STEP 2: DECIDE NEXT QUESTION BASED ON SCORE\n"
+                "- If needs_clarification: Rephrase the previous question simply. Set did_pivot=false.\n"
+                "- If is_cheating: Call them out gently. Ask for explanation in their own words. Set did_pivot=false.\n"
+                "- If is_off_topic: Be politely stern, ask them to stay focused. Pivot to DIFFERENT skill. Set did_pivot=true.\n"
+                "- If Score < 4: Say 'No worries!' and PIVOT to a COMPLETELY DIFFERENT skill. Set did_pivot=true.\n"
+                "- If Score >= 8 AND drill_depth < 2: Ask specific follow-up to go deeper (drill down). Set did_pivot=false.\n"
+                "- If Score >= 8 AND drill_depth >= 2: Acknowledge briefly, pivot to DIFFERENT skill. Set did_pivot=true.\n"
+                "- If Score 5-7: Acknowledge answer, move to next skill. Set did_pivot=true.\n\n"
+                "STEP 3: FORMAT YOUR RESPONSE\n"
+                "- next_question: Maximum 2 sentences. Sound casual and human. End with ONE clear question.\n"
+                "- Extract exact quote as evidence_extracted.\n"
+                "- Explain what was missing in critique.\n"
+                "- Provide ideal_answer (10/10 response example).\n"
+                "- List specific technical_concepts_missed (e.g., 'Indexing', 'N+1 queries').\n\n"
+                "Return comprehensive JSON with ALL fields."
+            )
+
+            config = types.GenerateContentConfig(
+                response_mime_type="application/json",
+                response_schema={
+                    "type": "OBJECT",
+                    "properties": {
+                        "understanding_score": {"type": "INTEGER"},
+                        "explainability_score": {"type": "INTEGER"},
+                        "is_cheating": {"type": "BOOLEAN"},
+                        "is_off_topic": {"type": "BOOLEAN"},
+                        "needs_clarification": {"type": "BOOLEAN"},
+                        "did_pivot": {"type": "BOOLEAN"},
+                        "next_question": {"type": "STRING"},
+                        "evidence_extracted": {"type": "STRING"},
+                        "critique": {"type": "STRING"},
+                        "ideal_answer": {"type": "STRING"},
+                        "technical_concepts_missed": {
+                            "type": "ARRAY",
+                            "items": {"type": "STRING"}
+                        },
+                        "bias_flag": {"type": "BOOLEAN"}
+                    }
+                }
+            )
+
+            # 🚀 ONE CALL TO GEMINI
+            response = await asyncio.to_thread(
+                self.client.models.generate_content, 
+                model=self.model_id, 
+                contents=prompt, 
+                config=config
+            )
+            data = json.loads(response.text)
+
+            # Extract results
+            score = data.get('understanding_score', 0)
+            explainability = data.get('explainability_score', 0)
+            is_cheating = data.get('is_cheating', False)
+            is_off_topic = data.get('is_off_topic', False)
+            needs_clarification = data.get('needs_clarification', False)
+            did_pivot = data.get('did_pivot', False)
+            next_question = data.get('next_question', '')
+
+            # 📊 LOG EVALUATION RESULTS
+            logger.info(f"📊 GEMINI EVALUATION | Understanding: {score}/10 | Explainability: {explainability}/10 | Cheating: {is_cheating} | Off-Topic: {is_off_topic} | Needs Clarification: {needs_clarification} | Pivoted: {did_pivot}")
+            if data.get('evidence_extracted'):
+                logger.info(f"💬 Evidence Quote: \"{data.get('evidence_extracted')}\"")
+
+            # Update local state based on LLM's decision
+            if needs_clarification:
+                self.turn_count -= 1  # Don't count clarification requests
+            
+            if did_pivot:
+                self.current_topic_drill_depth = 0
+                if score < 4:
+                    logger.info(f"⚠️ WEAK/NO ANSWER | Score: {score}/10 | LLM pivoted to new skill")
+                elif is_off_topic:
+                    logger.warning(f"🚫 CANDIDATE WENT OFF-TOPIC | Score: {score}/10 | LLM pivoted")
+            elif score >= 8:
+                self.current_topic_drill_depth += 1
+                logger.info(f"✅ STRONG ANSWER | Score: {score}/10 | Drill Depth: {self.current_topic_drill_depth}")
+            else:
+                logger.info(f"✅ VALID ANSWER | Score: {score}/10")
+
+            if is_cheating:
+                logger.warning(f"🚨 CHEATING SUSPECTED | Score: {score}/10 | Pause Duration: {pause_duration}s | Answer: \"{user_text[:100]}...\"")
+
+            # 🚀 ASYNC BACKGROUND SAVE (Non-blocking) - Save BEFORE updating last_question
+            # We're saving metrics for the question that was just answered
+            if self.last_question_asked:  # Only save if there was a previous question
+                asyncio.create_task(
+                    self._save_background_metrics(self.last_question_asked, user_text, data, score)
+                )
+
+            # Update last question to the new question we're about to ask
+            self.last_question_asked = next_question
+
+            return next_question
 
         except Exception as e:
             logger.error(f"💥 Brain Pipeline Error: {e}", exc_info=True)
             return "That's interesting. Could you tell me more about your experience with that?"
-
-    async def _grade_answer(self, question, answer, pause_duration, history_context):
-        if not history_context:
-            history_context = "No previous context. This is the first technical question."
-
-        prompt = (
-            f"--- CONTEXT OF CANDIDATE'S PREVIOUS ANSWERS ---\n"
-            f"{history_context}\n"
-            f"-----------------------------------------------\n\n"
-            f"Current Question: {question}\nCandidate Answer: {answer}\n"
-            f"Time taken before candidate started speaking: {pause_duration} seconds.\n\n"
-            "Analyze this response like a Senior Lead Engineer. "
-            "Evaluate the candidate on 'understanding_score' (technical accuracy 1-10) "
-            "and 'explainability_score' (clarity 1-10). Extract a short exact quote as evidence.\n\n"
-            "If the answer is weak, explain exactly what was missing in 'critique'. "
-            "Provide a 10/10 'ideal_answer' for comparison that demonstrates what a strong response would include.\n"
-            "List any specific 'technical_concepts_missed' (e.g., 'Indexing', 'N+1 queries', 'Memory management').\n\n"
-            "CRITICAL GRADING RULES:\n"
-            "- Score 8-10 (EXCELLENT): Mentions specific architectural decisions, real-world tools, or clear hands-on problem-solving. Reward practical engineering highly.\n"
-            "- Score 5-7 (AVERAGE): Answer is technically correct but shallow, or they admit they only know the surface level.\n"
-            "- Score 1-4 (POOR): Answer is completely incorrect, dodges the question, or shows zero technical knowledge.\n"
-            "- is_off_topic: Set to TRUE if the answer is literal nonsense, a joke, or completely unrelated to software engineering. If true, score is 0.\n"
-            "- is_cheating: Set to TRUE IF AND ONLY IF AT LEAST ONE of these is true:\n"
-            "    A) The 'Time taken before speaking' is very high (e.g. > 8 seconds) AND the current answer sounds perfectly formatted, robotic, or read from a textbook.\n"
-            "    B) There is a MASSIVE, unnatural spike in fluency, vocabulary, or knowledge compared to their 'Previous Answers'. For example: if they previously scored low or used very casual/broken language, but suddenly delivered a flawless, textbook definition.\n"
-            "- needs_clarification: Set to TRUE ONLY if they explicitly ask you to repeat or clarify the question."
-        )
-        
-        config = types.GenerateContentConfig(
-            response_mime_type="application/json",
-            response_schema={
-                "type": "OBJECT",
-                "properties": {
-                    "understanding_score": {"type": "INTEGER"},
-                    "explainability_score": {"type": "INTEGER"},
-                    "evidence_extracted": {"type": "STRING"},
-                    "critique": {"type": "STRING"},
-                    "ideal_answer": {"type": "STRING"},
-                    "technical_concepts_missed": {
-                        "type": "ARRAY",
-                        "items": {"type": "STRING"}
-                    },
-                    "is_cheating": {"type": "BOOLEAN"},
-                    "bias_flag": {"type": "BOOLEAN"},
-                    "needs_clarification": {"type": "BOOLEAN"},
-                    "is_off_topic": {"type": "BOOLEAN"} 
-                }
-            }
-        )
-        response = await asyncio.to_thread(
-            self.client.models.generate_content, model=self.model_id, contents=prompt, config=config
-        )
-        return json.loads(response.text)
 
     async def _save_background_metrics(self, question, answer, eval_data, score):
         try:
@@ -229,18 +231,3 @@ class InterviewerBrain:
             logger.info("✅ Background metrics saved to DB!")
         except Exception as e:
             logger.error(f"❌ Background Save Failed: {e}")
-
-    async def _generate_next_question(self, directive, user_text):
-        prompt = (
-            f"Candidate said: '{user_text}'.\n\n"
-            f"SYSTEM DIRECTIVE: {directive}\n\n"
-            "CRITICAL FORMATTING RULES FOR YOUR RESPONSE:\n"
-            "1. You are speaking out loud. Sound like a casual human.\n"
-            "2. MAXIMUM 2 SENTENCES. Keep it extremely brief.\n"
-            "3. NEVER write a paragraph. NEVER use bullet points.\n"
-            "4. End with exactly ONE clear question."
-        )
-        response = await asyncio.to_thread(
-            self.client.models.generate_content, model=self.model_id, contents=prompt
-        )
-        return response.text
