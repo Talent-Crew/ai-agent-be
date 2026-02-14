@@ -93,12 +93,22 @@ class UnifiedInterviewConsumer(AsyncWebsocketConsumer):
 
     async def receive(self, bytes_data=None, text_data=None):
         if bytes_data:
-            # Deepgram SDK handle: send() is typically thread-safe but 
-            # ensure dg_connection is actually started.
+            # Relay binary audio to Deepgram
             try:
                 self.dg_connection.send(bytes_data)
             except Exception as e:
-                logger.error(f"❌ Relay Error: {e}")
+                logger.error(f"❌ Deepgram Relay Error: {e}")
+        
+        elif text_data:
+            try:
+                data = json.loads(text_data)
+                # This allows us to test the Gemini -> TTS -> Centrifugo pipe 
+                # even if the microphone/VAD fails.
+                if data.get("type") == "force_test":
+                    logger.info("🚀 Force-test triggered. Bypassing VAD.")
+                    await self.generate_response("Hello! This is a forced test response.")
+            except Exception as e:
+                logger.error(f"❌ JSON Parse Error: {e}")
 
     async def disconnect(self, close_code):
         try:

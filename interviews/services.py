@@ -11,32 +11,28 @@ class InterviewerBrain:
     def __init__(self, session_id):
         self.session = InterviewSession.objects.select_related('job').get(id=session_id)
         self.client = genai.Client(api_key=settings.GEMINI_API_KEY)
-        self.model_id = "gemini-2.0-flash"
+        self.model_id = "gemini-2.5-flash"
 
     async def get_answer(self, text):
-        """Standard text generation with tool support."""
-        logger.info(f"🧠 Asking Gemini about: {text}")
+        logger.info(f"🧠 Gemini Thinking for text: {text}")
         try:
+            # Run the SDK call in a thread
             response = await asyncio.to_thread(
                 self.client.models.generate_content,
                 model=self.model_id,
                 contents=text,
                 config=types.GenerateContentConfig(
-                    system_instruction=self.get_instructions(),
-                    tools=[self.get_tools()]
+                    system_instruction=self.get_instructions()
+                    # tools=[self.get_tools()] # Comment out tools temporarily to simplify
                 )
             )
-            logger.info(f"🤖 Gemini responded successfully.")
-            # Check for tool calls (Evidence Logging)
-            if response.candidates[0].content.parts:
-                for part in response.candidates[0].content.parts:
-                    if part.function_call:
-                        await self.save_evidence(part.function_call.args)
-
-            return response.text
+            # Ensure we return a clean string
+            if response and response.text:
+                return response.text
+            return "I understood you, but I don't have an answer right now."
         except Exception as e:
-            logger.error(f"💥 Gemini API Crash: {e}")
-            return "I'm having trouble thinking right now."
+            logger.error(f"💥 Gemini Error: {e}")
+            return "Sorry, I encountered an error processing that."
 
     def get_instructions(self):
         job = self.session.job
