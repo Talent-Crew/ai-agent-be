@@ -60,38 +60,45 @@ class UnifiedInterviewConsumer(AsyncWebsocketConsumer):
             await self.close()
 
     async def generate_response(self, text):
-        """Gemini reasoning -> Deepgram Aura TTS."""
+        """Gemini reasoning -> Deepgram Aura TTS (Bulletproof MP3 Method)."""
+        import base64
         try:
             ai_text = await self.brain.get_answer(text)
             await self.centrifugo.publish_text_message(self.session_id, ai_text)
             
+            # 🚀 1. Switch to standard MP3 encoding
             options = SpeakOptions(
                 model="aura-asteria-en",
-                encoding="linear16",
-                sample_rate=16000,
+                encoding="mp3", 
             )
             
             await self.centrifugo.publish_event(self.session_id, "speech_start")
             
-            # Use the newer SDK pattern for streaming TTS
             response = await asyncio.to_thread(
                 self.dg_client.speak.v("1").stream, {"text": ai_text}, options
             )
             
-            # 🚀 WRAP THE BLOCKING STREAM ITERATION IN A THREAD
-            def stream_audio():
-                seq = 0
+            def process_full_audio():
+                # 🚀 2. Gather all chunks into ONE complete MP3 file
+                audio_bytes = b""
                 for chunk in response.stream:
                     if chunk:
-                        # Schedule the async publish from this thread
-                        asyncio.run_coroutine_threadsafe(
-                            self.centrifugo.publish_audio_chunk(self.session_id, chunk, sequence=seq),
-                            self.loop
-                        )
-                        seq += 1
-            
-            # Run the blocking iteration in a thread to prevent WebSocket blockage
-            await asyncio.to_thread(stream_audio)
+                        audio_bytes += chunk
+                
+                # 🚀 3. Encode the entire MP3 as a single Base64 string
+                b64_audio = base64.b64encode(audio_bytes).decode('utf-8')
+                
+                # Publish the complete file to Centrifugo
+                asyncio.run_coroutine_threadsafe(
+                    self.centrifugo.publish(
+                        f"interviews:interview:{self.session_id}",
+                        {"type": "tts_audio_complete", "audio": b64_audio}
+                    ),
+                    self.loop
+                )
+
+            # Run in thread so we don't block the websocket
+            await asyncio.to_thread(process_full_audio)
             await self.centrifugo.publish_event(self.session_id, "speech_end")
             
         except Exception as e:
