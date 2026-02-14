@@ -3,9 +3,8 @@ Centrifugo HTTP API Client for Publishing Audio Streams
 Handles real-time audio chunk publishing to React frontend
 """
 
-import asyncio
+
 import aiohttp
-import json
 import base64
 import logging
 from typing import Optional, Dict, Any
