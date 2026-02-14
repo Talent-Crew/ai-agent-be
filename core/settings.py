@@ -39,6 +39,7 @@ CORS_ALLOW_ALL_ORIGINS = True
 # Application definition
 INSTALLED_APPS = [
     'daphne',
+    'interviews',  
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
@@ -48,7 +49,6 @@ INSTALLED_APPS = [
     'rest_framework',
     'corsheaders',
     'channels',
-    'interviews',  
 ]
 
 # REST Framework Configuration
