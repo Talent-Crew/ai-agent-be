@@ -1,0 +1,39 @@
+
+services:
+  db:
+    image: postgres:15
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    environment:
+      - POSTGRES_DB=poolup_db
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+
+  centrifugo:
+    image: centrifugo/centrifugo:v5
+    volumes:
+      - ./centrifugo_config.json:/centrifugo/config.json
+    command: centrifugo -c config.json
+    ports:
+      - "8001:8000" # Centrifugo UI/API
+    environment:
+      - CENTRIFUGO_TOKEN_HMAC_SECRET_KEY=your-secret-key
+
+  web:
+    build: .
+    volumes:
+      - .:/app
+    ports:
+      - "8000:8000"
+    environment:
+      - DB_NAME=poolup_db
+      - DB_USER=postgres
+      - DB_PASSWORD=postgres
+      - DB_HOST=db
+      - GEMINI_API_KEY=your_gemini_key
+    depends_on:
+      - db
+      - centrifugo
+
+volumes:
+  postgres_data:

@@ -1,0 +1,10 @@
+django==5.0.1
+psycopg2-binary
+google-generativeai
+python-dotenv
+centrifuge-python
+requests
+channels==4.0.0
+daphne==4.0.0
+djangorestframework
+PyJWT
