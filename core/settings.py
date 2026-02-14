@@ -50,7 +50,9 @@ INSTALLED_APPS = [
     'interviews',  
 ]
 
-GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
+GEMINI_API_KEY = os.getenv('GEMINI_API_KEY') 
+if not GEMINI_API_KEY:
+    raise ValueError("GEMINI_API_KEY is not set in environment variables")
 DEEPGRAM_API_KEY = os.getenv('DEEPGRAM_API_KEY')
 CENTRIFUGO_SECRET = os.getenv('CENTRIFUGO_TOKEN_HMAC_SECRET_KEY', 'talentcrew-secret-key-2026')
 CENTRIFUGO_API_KEY = os.getenv('CENTRIFUGO_API_KEY', 'talentcrew-api-key-2026')
