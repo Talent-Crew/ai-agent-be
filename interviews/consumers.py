@@ -19,20 +19,39 @@ class UnifiedInterviewConsumer(AsyncWebsocketConsumer):
         self.dg_client = DeepgramClient(settings.DEEPGRAM_API_KEY)
         self.dg_connection = self.dg_client.listen.live.v("1")
 
+        self.transcript_buffer = ""
+
         def on_transcript(self_dg, result, **kwargs):
-            transcript = result.channel.alternatives[0].transcript
-            if result.is_final and len(transcript) > 0:
-                logger.info(f"🎤 Confirmed Speech: {transcript}")
-                asyncio.run_coroutine_threadsafe(
-                    self.generate_response(transcript), 
-                    self.loop
-                )
+            sentence = result.channel.alternatives[0].transcript
+            
+            if len(sentence) == 0:
+                return
+                
+            if result.is_final:
+                self.transcript_buffer += sentence + " "
+            
+            # 🚀 THE MAGIC FLAG: Deepgram detected the natural end of a thought
+            if result.speech_final:
+                final_answer = self.transcript_buffer.strip()
+                
+                if final_answer:
+                    logger.info(f"🎤 FULL CANDIDATE ANSWER CAPTURED: {final_answer}")
+                    self.transcript_buffer = "" # Clear buffer
+                    
+                    # Fire to Gemini safely from the Deepgram thread
+                    asyncio.run_coroutine_threadsafe(
+                        self.generate_response(final_answer), 
+                        self.loop
+                    )
 
         self.dg_connection.on(LiveTranscriptionEvents.Transcript, on_transcript)
         
         options = LiveOptions(
-            model="nova-2", language="en-US", interim_results=True,
-            utterance_end_ms="1000", vad_events=True, endpointing="1500" 
+            model="nova-2", 
+            language="en-US", 
+            interim_results=True,
+            vad_events=True, 
+            endpointing="500" # 🚀 500ms of silence AFTER a natural sentence end
         )
         
         try:
@@ -41,17 +60,12 @@ class UnifiedInterviewConsumer(AsyncWebsocketConsumer):
             await self.accept()
             logger.info(f"✅ Deepgram Pipeline Active: {self.session_id}")
             
-            # 🚀 PHASE 2: TRIGGER PROACTIVE INTRO ON CONNECT
-            asyncio.run_coroutine_threadsafe(
-                self.start_interview_flow(),
-                self.loop
-            )
+            asyncio.run_coroutine_threadsafe(self.start_interview_flow(), self.loop)
         except Exception as e:
             logger.error(f"❌ Deepgram Connection Failed: {e}")
             await self.close()
 
     async def start_interview_flow(self):
-        """Kicks off the interview as soon as the socket connects."""
         try:
             intro_text = await self.brain.generate_intro()
             await self.speak_text(intro_text)
@@ -59,7 +73,6 @@ class UnifiedInterviewConsumer(AsyncWebsocketConsumer):
             logger.error(f"❌ Intro Error: {e}")
 
     async def generate_response(self, text):
-        """Standard conversational turn."""
         try:
             ai_text = await self.brain.get_answer(text)
             await self.speak_text(ai_text)
@@ -67,20 +80,15 @@ class UnifiedInterviewConsumer(AsyncWebsocketConsumer):
             logger.error(f"❌ Generation Error: {e}")
 
     async def speak_text(self, text):
-        """Reusable Deepgram MP3 TTS logic."""
         import base64
-        
-        # Publish text to the frontend UI
         await self.centrifugo.publish_text_message(self.session_id, text)
         await self.centrifugo.publish_event(self.session_id, "speech_start")
         
-        # Generate the MP3
         options = SpeakOptions(model="aura-asteria-en", encoding="mp3")
         response = await asyncio.to_thread(
             self.dg_client.speak.v("1").stream, {"text": text}, options
         )
         
-        # Gather the file and send it
         def process_full_audio():
             audio_bytes = b""
             for chunk in response.stream:
@@ -104,12 +112,10 @@ class UnifiedInterviewConsumer(AsyncWebsocketConsumer):
                 await asyncio.to_thread(self.dg_connection.send, bytes_data)
             except Exception as e:
                 logger.error(f"❌ Deepgram Relay Error: {e}")
-        
         elif text_data:
             try:
                 data = json.loads(text_data)
                 if data.get("type") == "force_test":
-                    logger.info("🚀 Force-test triggered. Bypassing VAD.")
                     await self.generate_response("Hello! This is a forced test response.")
             except Exception as e:
                 logger.error(f"❌ JSON Parse Error: {e}")

@@ -14,12 +14,16 @@ class InterviewerBrain:
         self.client = genai.Client(api_key=settings.GEMINI_API_KEY)
         self.model_id = "gemini-2.5-flash"
         
-        # 🚀 1. LOAD THE DYNAMIC RUBRIC
+        # 🚀 1. LOAD THE NEW FIXED-FIELD RUBRIC
         rubric = self.session.job.rubric_template
-        self.metrics_list = rubric.get('metrics', [])
-        self.current_metric_index = 0
+        self.language = rubric.get('primary_language', 'General Programming')
+        self.level = rubric.get('experience_level', 'Mid-Level')
+        self.core_skills = rubric.get('core_skills', ['Core Concepts'])
+        self.focus = rubric.get('evaluation_focus', ['Understanding'])
         
-        self.current_difficulty = 3 
+        # 🚀 2. TURN-BASED STATE TRACKING
+        self.turn_count = 0
+        self.max_turns = 6 # Total questions before the interview ends
         self.last_question_asked = None
 
         config = types.GenerateContentConfig(
@@ -29,21 +33,14 @@ class InterviewerBrain:
         self.chat = self.client.chats.create(model=self.model_id, config=config)
 
     def get_instructions(self):
-        job = self.session.job
-        rubric = job.rubric_template
-        
-        # Safely extract the fixed fields from the JSON
-        language = rubric.get('primary_language', 'General Programming')
-        level = rubric.get('experience_level', 'Mid-Level')
-        skills = ", ".join(rubric.get('core_skills', []))
-        focus = ", ".join(rubric.get('evaluation_focus', ['Understanding', 'Communication']))
-        
+        skills_str = ", ".join(self.core_skills)
+        focus_str = ", ".join(self.focus)
         return (
-            f"You are a dynamic technical interviewer hiring a {level} {job.title}. "
+            f"You are a dynamic technical interviewer hiring a {self.level} {self.session.job.title}. "
             f"Candidate: {self.session.candidate_name}. "
-            f"Primary Language: {language}. "
-            f"Core Skills to cover: {skills}. "
-            f"Evaluation Focus: {focus}. "
+            f"Primary Language: {self.language}. "
+            f"Core Skills to cover: {skills_str}. "
+            f"Evaluation Focus: {focus_str}. "
             "INSTRUCTIONS: "
             "1. Do not interrogate. Have a natural, flowing conversation. "
             "2. If they don't know a specific skill, pivot smoothly to the next skill in the list. "
@@ -52,64 +49,46 @@ class InterviewerBrain:
 
     async def generate_intro(self):
         logger.info("🎬 Generating Interview Intro")
-        job_title = self.session.job.title
-        candidate = self.session.candidate_name
-        
         prompt = (
-            f"SYSTEM COMMAND: The interview has just started. Greet {candidate}. "
-            f"Introduce yourself as the TalentCrew AI Interviewer for the {job_title} role. "
+            f"SYSTEM COMMAND: The interview has just started. Greet {self.session.candidate_name}. "
+            f"Introduce yourself as the AI Interviewer for the {self.session.job.title} role. "
+            f"Briefly mention we'll be discussing {self.language} and core backend skills. "
             "End by asking if they are ready to begin. Keep it natural and under 3 sentences."
         )
         response = await asyncio.to_thread(self.chat.send_message, prompt)
         
         self.session.current_stage = 'technical'
         await asyncio.to_thread(self.session.save)
-        
         return response.text
 
     # --- TRACK 1: THE FAST TALKER ---
     async def get_answer(self, user_text):
         try:
-            if self.current_metric_index >= len(self.metrics_list):
-                return "We've covered everything I needed to ask. Do you have any questions for me before we wrap up?"
+            self.turn_count += 1
 
-            current_metric_data = self.metrics_list[self.current_metric_index]
-            metric_name = current_metric_data.get('name')
-            metric_criteria = current_metric_data.get('criteria')
-            passing_threshold = current_metric_data.get('threshold', 6)
+            # 🚀 3. END THE INTERVIEW AFTER X TURNS
+            if self.turn_count > self.max_turns:
+                return "We've covered some great ground today. I have all the information I need. Do you have any questions for me before we wrap up?"
 
             if self.last_question_asked:
-                # 🚀 2. FAST GRADING
-                eval_data = await self._grade_answer(self.last_question_asked, user_text, metric_name)
-                score = eval_data.get('confidence_score', 0)
+                # Grade the answer
+                eval_data = await self._grade_answer(self.last_question_asked, user_text)
+                score = eval_data.get('understanding_score', 0)
                 
-                # 🚀 3. FIRE THE BACKGROUND JUDGE (Stretch Goals!)
-                # This runs concurrently and saves to Postgres without delaying the audio
+                # Run background task
                 asyncio.create_task(
-                    self._save_background_metrics(self.last_question_asked, user_text, eval_data, metric_name, score)
+                    self._save_background_metrics(self.last_question_asked, user_text, eval_data, score)
                 )
 
-                # 🚀 4. PYTHON LOGIC FOR DIFFICULTY & RUBRIC TRANSITION
-                if score >= passing_threshold:
-                    logger.info(f"✅ Passed {metric_name} (Score: {score}). Moving to next metric.")
-                    self.current_metric_index += 1
-                    self.current_difficulty = 3 
-                    
-                    if self.current_metric_index >= len(self.metrics_list):
-                        directive = "The candidate passed the final topic. Tell them the technical portion is complete and smoothly wrap up the interview."
-                    else:
-                        next_metric = self.metrics_list[self.current_metric_index]['name']
-                        next_criteria = self.metrics_list[self.current_metric_index]['criteria']
-                        directive = f"The candidate did great. Transition to the next topic: {next_metric}. Focus on: {next_criteria}. Difficulty: Level 3."
+                # 🚀 4. THE PIVOT LOGIC
+                if score >= 7:
+                    logger.info(f"✅ Good understanding (Score: {score}). Going deeper.")
+                    directive = "The candidate gave a strong answer. Dive slightly deeper into an advanced aspect of what they just said, or transition smoothly to the next core skill."
                 else:
-                    logger.info(f"❌ Struggled with {metric_name} (Score: {score}). Retrying.")
-                    self.current_difficulty = max(1, self.current_difficulty - 1)
-                    directive = (
-                        f"The candidate struggled with {metric_name}. "
-                        f"Lower the difficulty to Level {self.current_difficulty} and ask an easier question regarding: {metric_criteria}."
-                    )
+                    logger.info(f"❌ Struggled (Score: {score}). Pivoting.")
+                    directive = "The candidate struggled with that concept. DO NOT repeat the question. Pivot smoothly to a completely different core skill from the required list."
             else:
-                directive = f"Start the technical interview. Ask a Level 3 question about the first topic: {metric_name} ({metric_criteria})."
+                directive = "Start the technical interview. Ask an open-ended question about their experience with one of the core skills."
 
             ai_spoken_response = await self._generate_next_question(directive, user_text)
             self.last_question_asked = ai_spoken_response
@@ -120,39 +99,33 @@ class InterviewerBrain:
             logger.error(f"💥 Brain Pipeline Error: {e}", exc_info=True)
             return "Could you elaborate on that?"
 
-    async def _grade_answer(self, question, answer, metric_name):
-        """Strictly returns JSON scoring data using Gemini's massive speed."""
+    # --- TRACK 2: THE BACKGROUND JUDGE ---
+    async def _grade_answer(self, question, answer):
         prompt = (
-            f"Analyze this interaction for the metric '{metric_name}'.\n"
             f"Question: {question}\nCandidate Answer: {answer}\n"
-            "Grade the technical accuracy, extract the exact quote as evidence, and check for cheating or bias."
+            "Evaluate the candidate on 'understanding_score' (technical accuracy 1-10) "
+            "and 'explainability_score' (clarity 1-10). Extract a short exact quote as evidence."
         )
-        
         config = types.GenerateContentConfig(
             response_mime_type="application/json",
             response_schema={
                 "type": "OBJECT",
                 "properties": {
-                    "confidence_score": {"type": "INTEGER", "description": "1 to 10"},
-                    "evidence_extracted": {"type": "STRING", "description": "Exact quote from candidate"},
-                    "is_cheating": {"type": "BOOLEAN", "description": "True if it sounds copy-pasted or robotic"},
-                    "cheating_reason": {"type": "STRING"},
-                    "bias_flag": {"type": "BOOLEAN", "description": "True if the question was unfair"}
+                    "understanding_score": {"type": "INTEGER"},
+                    "explainability_score": {"type": "INTEGER"},
+                    "evidence_extracted": {"type": "STRING"},
+                    "is_cheating": {"type": "BOOLEAN"},
+                    "bias_flag": {"type": "BOOLEAN"}
                 }
             }
         )
-        
-        # We use a separate direct API call to keep the main chat history clean
         response = await asyncio.to_thread(
             self.client.models.generate_content, model=self.model_id, contents=prompt, config=config
         )
         return json.loads(response.text)
 
-    # --- TRACK 2: THE BACKGROUND JUDGE ---
-    async def _save_background_metrics(self, question, answer, eval_data, metric_name, score):
-        """Runs silently in the background. Does NOT block the voice audio."""
+    async def _save_background_metrics(self, question, answer, eval_data, score):
         try:
-            # 1. Save the Per-Answer deep analysis (Stretch Goals)
             await asyncio.to_thread(
                 PerAnswerMetric.objects.create,
                 session=self.session,
@@ -161,33 +134,24 @@ class InterviewerBrain:
                 confidence_score=score,
                 evidence_extracted=eval_data.get('evidence_extracted', ''),
                 is_cheating_suspected=eval_data.get('is_cheating', False),
-                cheating_reason=eval_data.get('cheating_reason', ''),
                 bias_flag=eval_data.get('bias_flag', False)
             )
             
-            # 2. If they passed, save it to the Evidence Tracker for the final scorecard!
-            rubric = self.session.job.rubric_template
-            passing_threshold = next((m.get('threshold', 6) for m in rubric.get('metrics', []) if m.get('name') == metric_name), 6)
-            
-            if score >= passing_threshold:
+            # Save passing evidence
+            if score >= 7:
                 await asyncio.to_thread(
                     EvidenceSnippet.objects.create,
                     session=self.session,
-                    metric_name=metric_name,
+                    metric_name="Core Competency", 
                     snippet=eval_data.get('evidence_extracted', ''),
                     confidence_score=score
                 )
-                
-            logger.info("✅ Background metrics & evidence saved to DB!")
+            logger.info("✅ Background metrics saved to DB!")
         except Exception as e:
             logger.error(f"❌ Background Save Failed: {e}")
 
     async def _generate_next_question(self, directive, user_text):
-        """Generates the conversational text based on Python's strict directive."""
-        prompt = (
-            f"Candidate just said: '{user_text}'.\n"
-            f"SYSTEM DIRECTIVE: {directive}\n"
-        )
+        prompt = f"Candidate said: '{user_text}'.\nSYSTEM DIRECTIVE: {directive}\n"
         response = await asyncio.to_thread(
             self.client.models.generate_content, model=self.model_id, contents=prompt
         )
