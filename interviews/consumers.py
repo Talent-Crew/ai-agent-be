@@ -44,7 +44,7 @@ class UnifiedInterviewConsumer(AsyncWebsocketConsumer):
             interim_results=True,
             utterance_end_ms='1000',  # Must be int
             vad_events=True,
-            endpointing="300"         # Must be int
+            endpointing="300",
         )
         
         try:
