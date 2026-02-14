@@ -31,9 +31,20 @@ services:
       - DB_PASSWORD=postgres
       - DB_HOST=db
       - GEMINI_API_KEY=your_gemini_key
+      - CENTRIFUGO_API_KEY=your-api-key
+      - CENTRIFUGO_TOKEN_HMAC_SECRET_KEY=your-secret-key
     depends_on:
       - db
       - centrifugo
+    # Enable GPU support (requires nvidia-docker)
+    # Uncomment if running on GPU server
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
 
 volumes:
   postgres_data:
