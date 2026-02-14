@@ -205,27 +205,24 @@ class InterviewerBrain:
 
     async def _save_background_metrics(self, question, answer, eval_data, score):
         try:
+            # 🚀 FORCE empty list if Gemini sends null
+            tech_missed = eval_data.get('technical_concepts_missed')
+            if tech_missed is None:
+                tech_missed = []
+
             await asyncio.to_thread(
                 PerAnswerMetric.objects.create,
                 session=self.session,
                 question_asked=question,
                 candidate_answer=answer,
                 confidence_score=score,
-                evidence_extracted=eval_data.get('evidence_extracted', ''),
-                critique=eval_data.get('critique', ''),
-                ideal_answer=eval_data.get('ideal_answer', ''),
-                technical_concepts_missed=eval_data.get('technical_concepts_missed', []),
-                is_cheating_suspected=eval_data.get('is_cheating', False),
-                bias_flag=eval_data.get('bias_flag', False)
+                evidence_extracted=eval_data.get('evidence_extracted', '') or '',
+                critique=eval_data.get('critique', '') or '',
+                ideal_answer=eval_data.get('ideal_answer', '') or '',
+                technical_concepts_missed=tech_missed, # 🚀 FIXED
+                is_cheating_suspected=eval_data.get('is_cheating', False) or False,
+                bias_flag=eval_data.get('bias_flag', False) or False
             )
-            if score >= 7:
-                await asyncio.to_thread(
-                    EvidenceSnippet.objects.create,
-                    session=self.session,
-                    metric_name="Core Competency", 
-                    snippet=eval_data.get('evidence_extracted', ''),
-                    confidence_score=score
-                )
             logger.info("✅ Background metrics saved to DB!")
         except Exception as e:
             logger.error(f"❌ Background Save Failed: {e}")
