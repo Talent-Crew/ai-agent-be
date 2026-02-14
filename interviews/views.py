@@ -52,21 +52,21 @@ def create_test_session(request):
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def bootstrap_interview(request):
-    # 1. Use 'JobPosting' instead of 'Job'
-    job, _ = JobPosting.objects.get_or_create(
-        title="Python Developer", 
-        defaults={
-            "stack": ["Python", "Django"],
-            "rubric_template": {
-                "focus": "Focus on decorators and memory management."
-            }
-        }
-    )
+    # 1. Use .filter().first() instead of get_or_create
+    # This safely handles finding 0, 1, or 100 duplicates.
+    job = JobPosting.objects.filter(title="Python Developer").first()
     
-    # 2. Create the session (Ensure field names match your model)
+    if not job:
+        job = JobPosting.objects.create(
+            title="Python Developer", 
+            stack=["Python", "Django"],
+            rubric_template={"focus": "decorators and memory management"}
+        )
+    
+    # 2. Create the unique interview session
     session = InterviewSession.objects.create(
         job=job,
-        candidate_name="Web User" # candidate_name is required in your model
+        candidate_name="Web User"
     )
     
     # 3. Generate token

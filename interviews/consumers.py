@@ -13,6 +13,9 @@ logger = logging.getLogger(__name__)
 class UnifiedInterviewConsumer(AsyncWebsocketConsumer):
     async def connect(self):
         self.session_id = self.scope['url_route']['kwargs']['session_id']
+        # 🚀 CAPTURE THE RUNNING LOOP HERE
+        self.loop = asyncio.get_running_loop()
+        
         # Initialize Brain & Centrifugo
         self.brain = await asyncio.to_thread(InterviewerBrain, self.session_id)
         self.centrifugo = get_centrifugo_publisher()
@@ -26,10 +29,10 @@ class UnifiedInterviewConsumer(AsyncWebsocketConsumer):
             transcript = result.channel.alternatives[0].transcript
             if result.is_final and len(transcript) > 0:
                 logger.info(f"🎤 Confirmed Speech: {transcript}")
-                # Use the consumer's loop to schedule the response
+                # Use the captured loop to schedule the response
                 asyncio.run_coroutine_threadsafe(
                     self.generate_response(transcript), 
-                    asyncio.get_event_loop()
+                    self.loop
                 )
 
         self.dg_connection.on(LiveTranscriptionEvents.Transcript, on_transcript)
@@ -38,21 +41,18 @@ class UnifiedInterviewConsumer(AsyncWebsocketConsumer):
         options = LiveOptions(
             model="nova-2",
             language="en-US",
-            encoding="linear16",
-            sample_rate=16000,
-            channels=1,
             interim_results=True,
-            utterance_end_ms=1000,  # Must be int
+            utterance_end_ms='1000',  # Must be int
             vad_events=True,
-            endpointing=300         # Must be int
+            endpointing="300"         # Must be int
         )
         
         try:
-            # The .start() method is synchronous in some SDK versions, 
-            # but usually returns True/False or raises on 400.
-            if await asyncio.to_thread(self.dg_connection.start, options) is False:
+            # Use the direct await since the SDK method is already async
+            started = await asyncio.to_thread(self.dg_connection.start, options)
+            if not started:
                 raise Exception("Deepgram rejected connection")
-                
+            
             await self.accept()
             logger.info(f"✅ Deepgram Pipeline Active: {self.session_id}")
         except Exception as e:
@@ -78,14 +78,20 @@ class UnifiedInterviewConsumer(AsyncWebsocketConsumer):
                 self.dg_client.speak.v("1").stream, {"text": ai_text}, options
             )
             
-            # response.stream is a block-generator, iterate carefully
-            seq = 0
-            for chunk in response.stream:
-                if chunk:
-                    await self.centrifugo.publish_audio_chunk(self.session_id, chunk, sequence=seq)
-                    seq += 1
-                await asyncio.sleep(0.01) # Small sleep to yield
-                
+            # 🚀 WRAP THE BLOCKING STREAM ITERATION IN A THREAD
+            def stream_audio():
+                seq = 0
+                for chunk in response.stream:
+                    if chunk:
+                        # Schedule the async publish from this thread
+                        asyncio.run_coroutine_threadsafe(
+                            self.centrifugo.publish_audio_chunk(self.session_id, chunk, sequence=seq),
+                            self.loop
+                        )
+                        seq += 1
+            
+            # Run the blocking iteration in a thread to prevent WebSocket blockage
+            await asyncio.to_thread(stream_audio)
             await self.centrifugo.publish_event(self.session_id, "speech_end")
             
         except Exception as e:
@@ -93,9 +99,9 @@ class UnifiedInterviewConsumer(AsyncWebsocketConsumer):
 
     async def receive(self, bytes_data=None, text_data=None):
         if bytes_data:
-            # Relay binary audio to Deepgram
+            # Relay binary audio to Deepgram (non-blocking send)
             try:
-                self.dg_connection.send(bytes_data)
+                await asyncio.to_thread(self.dg_connection.send, bytes_data)
             except Exception as e:
                 logger.error(f"❌ Deepgram Relay Error: {e}")
         
@@ -112,7 +118,7 @@ class UnifiedInterviewConsumer(AsyncWebsocketConsumer):
 
     async def disconnect(self, close_code):
         try:
-            self.dg_connection.finish()
-        except:
-            pass
+            await asyncio.to_thread(self.dg_connection.finish)
+        except Exception as e:
+            logger.warning(f"⚠️ Deepgram disconnect error: {e}")
         await self.centrifugo.close()

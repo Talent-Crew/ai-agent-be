@@ -56,6 +56,7 @@ CENTRIFUGO_SECRET = os.getenv('CENTRIFUGO_TOKEN_HMAC_SECRET_KEY', 'talentcrew-se
 CENTRIFUGO_API_KEY = os.getenv('CENTRIFUGO_API_KEY', 'talentcrew-api-key-2026')
 CENTRIFUGO_HOST = 'http://centrifugo:8000' # Internal Docker network
 MIDDLEWARE = [
+    'corsheaders.middleware.CorsMiddleware',
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
