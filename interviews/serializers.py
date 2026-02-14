@@ -45,7 +45,6 @@ class InterviewSessionSerializer(serializers.ModelSerializer):
         ]
 
     def create(self, validated_data):
-        # Pop the job_id, find the actual Job object, and create the session
         job_id = validated_data.pop('job_id')
         try:
             job = JobPosting.objects.get(id=job_id)

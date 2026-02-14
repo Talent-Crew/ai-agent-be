@@ -192,14 +192,11 @@ class InterviewerBrain:
             if is_cheating:
                 logger.warning(f"🚨 CHEATING SUSPECTED | Score: {score}/10 | Pause Duration: {pause_duration}s | Answer: \"{user_text[:100]}...\"")
 
-            # 🚀 ASYNC BACKGROUND SAVE (Non-blocking) - Save BEFORE updating last_question
-            # We're saving metrics for the question that was just answered
-            if self.last_question_asked:  # Only save if there was a previous question
+            if self.last_question_asked:  
                 asyncio.create_task(
                     self._save_background_metrics(self.last_question_asked, user_text, data, score)
                 )
 
-            # Update last question to the new question we're about to ask
             self.last_question_asked = next_question
 
             return next_question

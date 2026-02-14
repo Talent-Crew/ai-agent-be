@@ -39,7 +39,6 @@ class JoinInterviewSessionView(APIView):
     def get(self, request, session_id):
         session = get_object_or_404(InterviewSession, id=session_id)
         
-        # Create a unique Centrifugo user ID using the session & candidate name
         safe_name = session.candidate_name.replace(" ", "_").lower()
         user_id = f"cand_{safe_name}_{str(session.id)[:8]}"
         
@@ -57,8 +56,6 @@ class JoinInterviewSessionView(APIView):
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def bootstrap_interview(request):
-    # 1. Use .filter().first() instead of get_or_create
-    # This safely handles finding 0, 1, or 100 duplicates.
     job = JobPosting.objects.filter(title="Python Developer").first()
     
     if not job:
@@ -73,13 +70,11 @@ def bootstrap_interview(request):
             }
         )
     
-    # 2. Create the unique interview session
     session = InterviewSession.objects.create(
         job=job,
         candidate_name="Web User"
     )
     
-    # 3. Generate token
     token = generate_centrifugo_token(user_id="user_1")
     
     return Response({
@@ -92,14 +87,12 @@ class EndInterviewSessionView(APIView):
     def post(self, request, session_id):
         session = get_object_or_404(InterviewSession, id=session_id)
         
-        # 1. Close the session
         session.is_completed = True
         session.current_stage = 'completed'
         session.save()
         
         metrics = PerAnswerMetric.objects.filter(session=session).order_by('timestamp')
         
-        # 2. Defensive check: What if no metrics saved?
         if not metrics.exists():
             return Response({
                 "candidate": session.candidate_name,
@@ -112,7 +105,6 @@ class EndInterviewSessionView(APIView):
         avg_score = metrics.aggregate(Avg('confidence_score'))['confidence_score__avg'] or 0
         final_score = int(avg_score * 10)
 
-        # 3. Build Timeline defensively
         timeline = []
         all_missed = []
         for m in metrics:

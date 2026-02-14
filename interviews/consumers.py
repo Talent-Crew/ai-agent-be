@@ -1,7 +1,7 @@
 import logging
 import asyncio
 import json
-import time # 🚀 1. WE NEED TIME FOR THE STOPWATCH
+import time 
 from channels.generic.websocket import AsyncWebsocketConsumer
 from deepgram import DeepgramClient, DeepgramClientOptions, LiveTranscriptionEvents, LiveOptions
 from deepgram.clients.speak.v1 import SpeakOptions
@@ -24,7 +24,6 @@ class UnifiedInterviewConsumer(AsyncWebsocketConsumer):
 
         self.transcript_buffer = ""
         
-        # 🚀 2. THE CHEATING STOPWATCH VARIABLES
         self.ai_finished_speaking_time = 0
         self.user_first_word_time = 0
 
@@ -33,7 +32,6 @@ class UnifiedInterviewConsumer(AsyncWebsocketConsumer):
             if len(sentence) == 0 or not result.is_final:
                 return
             
-            # 🚀 3. RECORD THE EXACT MOMENT THEY START SPEAKING
             if self.user_first_word_time == 0:
                 self.user_first_word_time = time.time()
                 
@@ -82,17 +80,14 @@ class UnifiedInterviewConsumer(AsyncWebsocketConsumer):
         except Exception as e:
             logger.error(f"❌ Intro Error: {e}")
 
-    # 🚀 4. PASS THE PAUSE DURATION TO THE BRAIN
     async def generate_response(self, text, pause_duration):
         try:
             ai_text = await self.brain.get_answer(text, pause_duration)
             
-            # Check if interview is complete
             if ai_text.startswith("FINISH_INTERVIEW:"):
                 clean_text = ai_text.replace("FINISH_INTERVIEW:", "").strip()
                 await self.speak_text(clean_text)
                 
-                # Tell Frontend to trigger the scorecard
                 logger.info("🏁 Sending interview_complete event to frontend")
                 await self.centrifugo.publish(
                     f"interviews:interview:{self.session_id}",
@@ -130,7 +125,6 @@ class UnifiedInterviewConsumer(AsyncWebsocketConsumer):
         await asyncio.to_thread(process_full_audio)
         await self.centrifugo.publish_event(self.session_id, "speech_end")
         
-        # 🚀 5. START THE CLOCK WHEN AI FINISHES SPEAKING
         self.ai_finished_speaking_time = time.time()
         self.user_first_word_time = 0 # Reset for the next question
 
@@ -145,7 +139,6 @@ class UnifiedInterviewConsumer(AsyncWebsocketConsumer):
                 data = json.loads(text_data)
                 
                 if data.get("type") == "user_finished_speaking":
-                    # We can remove the sleep here because the frontend now handles the delay!
                     final_text = getattr(self, 'transcript_buffer', "").strip()
                     
                     if final_text:
@@ -156,8 +149,6 @@ class UnifiedInterviewConsumer(AsyncWebsocketConsumer):
                         logger.info(f"🎤 USER CLICKED DONE. GAP: {pause_duration}s | TEXT: {final_text}")
                         self.transcript_buffer = "" 
                         
-                        # 🚀 THE SPEED BOOST: 
-                        # We use create_task so we don't block the WebSocket from receiving new audio
                         asyncio.create_task(self.generate_response(final_text, pause_duration))
                     else:
                         logger.warning("⚠️ User clicked done, but they haven't spoken anything yet.")
