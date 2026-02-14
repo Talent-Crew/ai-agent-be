@@ -26,7 +26,15 @@ SECRET_KEY = 'django-insecure-*7+ff%z+-m**6@d9d^lfhly0b(4u(2cg8&%%l9rz()wzr=h-jz
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = []
+
+ALLOWED_HOSTS = ['*'] 
+
+CORS_ALLOW_ALL_ORIGINS = True
+
+# 3. Ensure CSRF doesn't block your IP whe making POST requests
+CSRF_TRUSTED_ORIGINS = [ "*" ]  # In production, specify your frontend domain here, e.g. "https://yourdomain.com"
+
+
 
 
 # Application definition
