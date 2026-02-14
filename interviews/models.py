@@ -33,3 +33,26 @@ class EvidenceSnippet(models.Model):
     confidence_score = models.IntegerField() # 1-10
     
     timestamp = models.DateTimeField(auto_now_add=True)
+
+class PerAnswerMetric(models.Model):
+    # Link every single Q&A directly back to the specific interview session
+    session = models.ForeignKey(InterviewSession, related_name='answers', on_delete=models.CASCADE)
+    
+    # What was said
+    question_asked = models.TextField()
+    candidate_answer = models.TextField()
+    
+    # The deep analysis from the Background Judge
+    confidence_score = models.IntegerField(null=True, blank=True) # 1-10
+    evidence_extracted = models.TextField(null=True, blank=True)
+    
+    # Anti-cheating and fairness tracking
+    is_cheating_suspected = models.BooleanField(default=False)
+    cheating_reason = models.CharField(max_length=255, null=True, blank=True)
+    bias_flag = models.BooleanField(default=False) # True if AI asked an unfair/unrelated question
+    
+    # When this specific answer happened
+    timestamp = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"Q&A for Session {self.session.id} - Score: {self.confidence_score}"

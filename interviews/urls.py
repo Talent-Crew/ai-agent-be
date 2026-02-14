@@ -1,9 +1,10 @@
 from django.urls import path
-from .views import get_interview_token, create_test_session
-from interviews import views
+from . import views
 
 urlpatterns = [
-    path('token/<uuid:session_id>/', get_interview_token, name='interview_token'),
-    path('test/setup/', create_test_session, name='test_setup'), 
-    path('test/bootstrap/', views.bootstrap_interview),
+    path('api/jobs/', views.JobPostingListCreateView.as_view(), name='job-list-create'),
+    path('api/sessions/', views.InterviewSessionCreateView.as_view(), name='session-create'),
+    path('api/sessions/<uuid:session_id>/connect/', views.JoinInterviewSessionView.as_view(), name='session-connect'),
+    
+    path('test/bootstrap/', views.bootstrap_interview, name='test-bootstrap'),
 ]
