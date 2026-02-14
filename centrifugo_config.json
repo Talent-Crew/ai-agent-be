@@ -1,11 +1,15 @@
 {
-  "token_hmac_secret_key": "your-secret-key",
-  "api_key": "your-api-key",
+  "token_hmac_secret_key": "talentcrew-secret-key-2026",
+  "api_key": "talentcrew-api-key-2026",
+  "admin": true,
+  "admin_password": "admin",
+  "admin_secret": "admin-secret",
+  "allowed_origins": ["*"],
   "namespaces": [
     {
       "name": "interviews",
-      "publish": true,
-      "subscribe": true
+      "allow_publish_for_client": true,
+      "allow_subscribe_for_client": true
     }
   ]
 }

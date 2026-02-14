@@ -7,9 +7,6 @@ from rest_framework.response import Response
 from .models import JobPosting, InterviewSession
 
 def get_interview_token(request, session_id):
-    """
-    Endpoint for the candidate to get their Centrifugo connection token.
-    """
     try:
         session = InterviewSession.objects.get(id=session_id)
         token = generate_centrifugo_token(session.id)
@@ -17,7 +14,7 @@ def get_interview_token(request, session_id):
         return JsonResponse({
             "token": token,
             "ws_url": "ws://localhost:8001/connection/websocket", 
-            "channel": f"interview:{session.id}"
+            "channel": f"interviews:interview:{session.id}" 
         })
     except InterviewSession.DoesNotExist:
         return JsonResponse({"error": "Session not found"}, status=404)

@@ -44,8 +44,9 @@ INSTALLED_APPS = [
 ]
 
 GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
-CENTRIFUGO_API_KEY = os.getenv('CENTRIFUGO_API_KEY', 'your-api-key')
-CENTRIFUGO_SECRET = os.getenv('CENTRIFUGO_TOKEN_HMAC_SECRET_KEY', 'your-secret-key')
+DEEPGRAM_API_KEY = os.getenv('DEEPGRAM_API_KEY')
+CENTRIFUGO_SECRET = os.getenv('CENTRIFUGO_TOKEN_HMAC_SECRET_KEY', 'talentcrew-secret-key-2026')
+CENTRIFUGO_API_KEY = os.getenv('CENTRIFUGO_API_KEY', 'talentcrew-api-key-2026')
 CENTRIFUGO_HOST = 'http://centrifugo:8000' # Internal Docker network
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',

@@ -1,46 +1,108 @@
-import json
+import logging
 import asyncio
+import json
 from channels.generic.websocket import AsyncWebsocketConsumer
+from deepgram import DeepgramClient, LiveTranscriptionEvents, LiveOptions
+from deepgram.clients.speak.v1 import SpeakOptions
+from django.conf import settings
 from .services import InterviewerBrain
+from .centrifugo_client import get_centrifugo_publisher
 
-class GeminiLiveConsumer(AsyncWebsocketConsumer):
+logger = logging.getLogger(__name__)
+
+class UnifiedInterviewConsumer(AsyncWebsocketConsumer):
     async def connect(self):
         self.session_id = self.scope['url_route']['kwargs']['session_id']
-        self.brain = InterviewerBrain(self.session_id)
+        # Initialize Brain & Centrifugo
+        self.brain = await asyncio.to_thread(InterviewerBrain, self.session_id)
+        self.centrifugo = get_centrifugo_publisher()
         
-        # Connect to Gemini 3 Multimodal Live API
-        self.gemini_session = await self.brain.client.aio.live.connect(
-            model=self.brain.model_id,
-            config=types.LiveConnectConfig(
-                system_instruction=self.brain.get_system_instruction(),
-                tools=self.brain.get_tools(),
-                response_modalities=["AUDIO"] # Gemini replies with voice!
-            )
+        # Initialize Deepgram
+        self.dg_client = DeepgramClient(settings.DEEPGRAM_API_KEY)
+        self.dg_connection = self.dg_client.listen.live.v("1")
+
+        # Define the event handler correctly
+        def on_transcript(self_dg, result, **kwargs):
+            transcript = result.channel.alternatives[0].transcript
+            if result.is_final and len(transcript) > 0:
+                logger.info(f"🎤 Confirmed Speech: {transcript}")
+                # Use the consumer's loop to schedule the response
+                asyncio.run_coroutine_threadsafe(
+                    self.generate_response(transcript), 
+                    asyncio.get_event_loop()
+                )
+
+        self.dg_connection.on(LiveTranscriptionEvents.Transcript, on_transcript)
+        
+        # Fixed Options: Ensure integers and strict typing
+        options = LiveOptions(
+            model="nova-2",
+            language="en-US",
+            encoding="linear16",
+            sample_rate=16000,
+            channels=1,
+            interim_results=True,
+            utterance_end_ms=1000,  # Must be int
+            vad_events=True,
+            endpointing=300         # Must be int
         )
-        await self.accept()
+        
+        try:
+            # The .start() method is synchronous in some SDK versions, 
+            # but usually returns True/False or raises on 400.
+            if await asyncio.to_thread(self.dg_connection.start, options) is False:
+                raise Exception("Deepgram rejected connection")
+                
+            await self.accept()
+            logger.info(f"✅ Deepgram Pipeline Active: {self.session_id}")
+        except Exception as e:
+            logger.error(f"❌ Deepgram Connection Failed: {e}")
+            await self.close()
+
+    async def generate_response(self, text):
+        """Gemini reasoning -> Deepgram Aura TTS."""
+        try:
+            ai_text = await self.brain.get_answer(text)
+            await self.centrifugo.publish_text_message(self.session_id, ai_text)
+            
+            options = SpeakOptions(
+                model="aura-asteria-en",
+                encoding="linear16",
+                sample_rate=16000,
+            )
+            
+            await self.centrifugo.publish_event(self.session_id, "speech_start")
+            
+            # Use the newer SDK pattern for streaming TTS
+            response = await asyncio.to_thread(
+                self.dg_client.speak.v("1").stream, {"text": ai_text}, options
+            )
+            
+            # response.stream is a block-generator, iterate carefully
+            seq = 0
+            for chunk in response.stream:
+                if chunk:
+                    await self.centrifugo.publish_audio_chunk(self.session_id, chunk, sequence=seq)
+                    seq += 1
+                await asyncio.sleep(0.01) # Small sleep to yield
+                
+            await self.centrifugo.publish_event(self.session_id, "speech_end")
+            
+        except Exception as e:
+            logger.error(f"❌ Generation Error: {e}")
 
     async def receive(self, bytes_data=None, text_data=None):
-        """
-        Receives raw PCM bytes from Centrifugo/React 
-        and pipes them to Gemini 3.
-        """
         if bytes_data:
-            # Send audio chunks to Gemini
-            await self.gemini_session.send(input=bytes_data, end_of_turn=False)
-        
-        # Listen for Gemini's response (Audio + Tool Calls)
-        async for message in self.gemini_session.receive():
-            if message.server_content and message.server_content.model_turn:
-                # Send Gemini's voice back to the candidate
-                audio_bytes = message.server_content.model_turn.parts[0].inline_data.data
-                await self.send(bytes_data=audio_bytes)
-            
-            if message.tool_call:
-                # Handle the record_evidence tool
-                for fc in message.tool_call.function_calls:
-                    result = self.brain.handle_tool_call(fc)
-                    await self.gemini_session.send(
-                        tool_response=types.LiveClientToolResponse(
-                            function_responses=[types.FunctionResponse(name=fc.name, response=result)]
-                        )
-                    )
+            # Deepgram SDK handle: send() is typically thread-safe but 
+            # ensure dg_connection is actually started.
+            try:
+                self.dg_connection.send(bytes_data)
+            except Exception as e:
+                logger.error(f"❌ Relay Error: {e}")
+
+    async def disconnect(self, close_code):
+        try:
+            self.dg_connection.finish()
+        except:
+            pass
+        await self.centrifugo.close()
