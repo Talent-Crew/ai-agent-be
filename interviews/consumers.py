@@ -24,19 +24,18 @@ class UnifiedInterviewConsumer(AsyncWebsocketConsumer):
         def on_transcript(self_dg, result, **kwargs):
             sentence = result.channel.alternatives[0].transcript
             
-            if len(sentence) == 0:
-                return
-                
-            if result.is_final:
+            # 🚀 FIX: Only add to buffer if there is text AND it's final
+            if sentence and result.is_final:
                 self.transcript_buffer += sentence + " "
             
-            # 🚀 THE MAGIC FLAG: Deepgram detected the natural end of a thought
+            # 🚀 FIX: Check for speech_final OUTSIDE the empty text check
+            # Deepgram often sends speech_final=True on an empty text packet!
             if result.speech_final:
                 final_answer = self.transcript_buffer.strip()
                 
                 if final_answer:
                     logger.info(f"🎤 FULL CANDIDATE ANSWER CAPTURED: {final_answer}")
-                    self.transcript_buffer = "" # Clear buffer
+                    self.transcript_buffer = "" # Clear buffer immediately
                     
                     # Fire to Gemini safely from the Deepgram thread
                     asyncio.run_coroutine_threadsafe(
@@ -46,12 +45,14 @@ class UnifiedInterviewConsumer(AsyncWebsocketConsumer):
 
         self.dg_connection.on(LiveTranscriptionEvents.Transcript, on_transcript)
         
+        # 🚀 TWEAKED OPTIONS: For ultra-fast response times
         options = LiveOptions(
             model="nova-2", 
             language="en-US", 
             interim_results=True,
             vad_events=True, 
-            endpointing="500" # 🚀 500ms of silence AFTER a natural sentence end
+            endpointing="500",      # End sentence after 500ms of silence
+            utterance_end_ms="1000" # Absolute cutoff fail-safe
         )
         
         try:
