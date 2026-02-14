@@ -74,19 +74,30 @@ class InterviewerBrain:
                 # Grade the answer
                 eval_data = await self._grade_answer(self.last_question_asked, user_text)
                 score = eval_data.get('understanding_score', 0)
-                
-                # Run background task
-                asyncio.create_task(
-                    self._save_background_metrics(self.last_question_asked, user_text, eval_data, score)
-                )
+                needs_clarification = eval_data.get('needs_clarification', False)
 
-                # 🚀 4. THE PIVOT LOGIC
-                if score >= 7:
-                    logger.info(f"✅ Good understanding (Score: {score}). Going deeper.")
-                    directive = "The candidate gave a strong answer. Dive slightly deeper into an advanced aspect of what they just said, or transition smoothly to the next core skill."
+                # 🚀 4. THE CLARIFICATION BYPASS
+                if needs_clarification:
+                    logger.info("🔄 Candidate requested clarification. Rephrasing.")
+                    self.turn_count -= 1 # Don't count this as a consumed turn
+                    directive = (
+                        "The candidate didn't hear or didn't understand the question. "
+                        "Do not change the topic. Politely rephrase the previous question "
+                        "in a much simpler, clearer way."
+                    )
                 else:
-                    logger.info(f"❌ Struggled (Score: {score}). Pivoting.")
-                    directive = "The candidate struggled with that concept. DO NOT repeat the question. Pivot smoothly to a completely different core skill from the required list."
+                    # Run background task ONLY if it was an actual attempt at an answer
+                    asyncio.create_task(
+                        self._save_background_metrics(self.last_question_asked, user_text, eval_data, score)
+                    )
+
+                    # 🚀 5. THE PIVOT LOGIC
+                    if score >= 7:
+                        logger.info(f"✅ Good understanding (Score: {score}). Going deeper.")
+                        directive = "The candidate gave a strong answer. Dive slightly deeper into an advanced aspect of what they just said, or transition smoothly to the next core skill."
+                    else:
+                        logger.info(f"❌ Struggled (Score: {score}). Pivoting.")
+                        directive = "The candidate struggled with that concept. DO NOT repeat the question. Pivot smoothly to a completely different core skill from the required list."
             else:
                 directive = "Start the technical interview. Ask an open-ended question about their experience with one of the core skills."
 
@@ -98,13 +109,15 @@ class InterviewerBrain:
         except Exception as e:
             logger.error(f"💥 Brain Pipeline Error: {e}", exc_info=True)
             return "Could you elaborate on that?"
-
     # --- TRACK 2: THE BACKGROUND JUDGE ---
     async def _grade_answer(self, question, answer):
         prompt = (
             f"Question: {question}\nCandidate Answer: {answer}\n"
             "Evaluate the candidate on 'understanding_score' (technical accuracy 1-10) "
-            "and 'explainability_score' (clarity 1-10). Extract a short exact quote as evidence."
+            "and 'explainability_score' (clarity 1-10). Extract a short exact quote as evidence. "
+            "IMPORTANT DISTINCTION: If the candidate says they don't know the answer, score them low. "
+            "HOWEVER, if they ask you to repeat the question, say they couldn't hear, or explicitly ask "
+            "for clarification on what the question means, set 'needs_clarification' to true and scores to 0."
         )
         config = types.GenerateContentConfig(
             response_mime_type="application/json",
@@ -115,7 +128,8 @@ class InterviewerBrain:
                     "explainability_score": {"type": "INTEGER"},
                     "evidence_extracted": {"type": "STRING"},
                     "is_cheating": {"type": "BOOLEAN"},
-                    "bias_flag": {"type": "BOOLEAN"}
+                    "bias_flag": {"type": "BOOLEAN"},
+                    "needs_clarification": {"type": "BOOLEAN"} # 🚀 NEW FIELD
                 }
             }
         )

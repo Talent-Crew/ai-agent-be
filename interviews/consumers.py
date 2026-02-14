@@ -2,7 +2,7 @@ import logging
 import asyncio
 import json
 from channels.generic.websocket import AsyncWebsocketConsumer
-from deepgram import DeepgramClient, LiveTranscriptionEvents, LiveOptions
+from deepgram import DeepgramClient, DeepgramClientOptions, LiveTranscriptionEvents, LiveOptions
 from deepgram.clients.speak.v1 import SpeakOptions
 from django.conf import settings
 from .services import InterviewerBrain
@@ -19,40 +19,29 @@ class UnifiedInterviewConsumer(AsyncWebsocketConsumer):
         self.dg_client = DeepgramClient(settings.DEEPGRAM_API_KEY)
         self.dg_connection = self.dg_client.listen.live.v("1")
 
+        # 🚀 1. JUST A SIMPLE BUFFER NOW (No silence watcher!)
         self.transcript_buffer = ""
 
         def on_transcript(self_dg, result, **kwargs):
             sentence = result.channel.alternatives[0].transcript
             
-            # 🚀 FIX: Only add to buffer if there is text AND it's final
-            if sentence and result.is_final:
-                self.transcript_buffer += sentence + " "
-            
-            # 🚀 FIX: Check for speech_final OUTSIDE the empty text check
-            # Deepgram often sends speech_final=True on an empty text packet!
-            if result.speech_final:
-                final_answer = self.transcript_buffer.strip()
+            # Only append finalized chunks that contain text
+            if len(sentence) == 0 or not result.is_final:
+                return
                 
-                if final_answer:
-                    logger.info(f"🎤 FULL CANDIDATE ANSWER CAPTURED: {final_answer}")
-                    self.transcript_buffer = "" # Clear buffer immediately
-                    
-                    # Fire to Gemini safely from the Deepgram thread
-                    asyncio.run_coroutine_threadsafe(
-                        self.generate_response(final_answer), 
-                        self.loop
-                    )
+            # 🚀 2. Continuously build the paragraph
+            self.transcript_buffer += sentence + " "
+            logger.info(f"📝 Captured so far: {sentence}")
 
         self.dg_connection.on(LiveTranscriptionEvents.Transcript, on_transcript)
         
-        # 🚀 TWEAKED OPTIONS: For ultra-fast response times
         options = LiveOptions(
             model="nova-2", 
             language="en-US", 
             interim_results=True,
-            vad_events=True, 
-            endpointing="500",      # End sentence after 500ms of silence
-            utterance_end_ms="1000" # Absolute cutoff fail-safe
+            smart_format=True,
+            # We don't care about utterance_end_ms anymore because we manually trigger
+            endpointing="100" # Keep this low so Deepgram sends finalized text quickly
         )
         
         try:
@@ -61,7 +50,10 @@ class UnifiedInterviewConsumer(AsyncWebsocketConsumer):
             await self.accept()
             logger.info(f"✅ Deepgram Pipeline Active: {self.session_id}")
             
-            asyncio.run_coroutine_threadsafe(self.start_interview_flow(), self.loop)
+            asyncio.run_coroutine_threadsafe(
+                self.start_interview_flow(),
+                self.loop
+            )
         except Exception as e:
             logger.error(f"❌ Deepgram Connection Failed: {e}")
             await self.close()
@@ -110,14 +102,28 @@ class UnifiedInterviewConsumer(AsyncWebsocketConsumer):
     async def receive(self, bytes_data=None, text_data=None):
         if bytes_data:
             try:
+                # Keep streaming audio to Deepgram constantly
                 await asyncio.to_thread(self.dg_connection.send, bytes_data)
             except Exception as e:
                 logger.error(f"❌ Deepgram Relay Error: {e}")
         elif text_data:
             try:
                 data = json.loads(text_data)
-                if data.get("type") == "force_test":
-                    await self.generate_response("Hello! This is a forced test response.")
+                
+                # 🚀 3. THE MAGIC TRIGGER FROM THE FRONTEND
+                if data.get("type") == "user_finished_speaking":
+                    # Wait half a second just to let any final Deepgram text chunks arrive over the network
+                    await asyncio.sleep(0.5) 
+                    
+                    final_text = getattr(self, 'transcript_buffer', "").strip()
+                    
+                    if final_text:
+                        logger.info(f"🎤 USER CLICKED DONE. FULL PARAGRAPH: {final_text}")
+                        self.transcript_buffer = "" # Clear buffer for the next question
+                        await self.generate_response(final_text)
+                    else:
+                        logger.warning("⚠️ User clicked done, but they haven't spoken anything yet.")
+                        
             except Exception as e:
                 logger.error(f"❌ JSON Parse Error: {e}")
 
