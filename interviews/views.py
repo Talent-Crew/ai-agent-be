@@ -24,39 +24,55 @@ from django.contrib.auth import login, logout
 import os
 
 
+from rest_framework import generics
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework.permissions import AllowAny
+from django.shortcuts import get_object_or_404
+from .models import JobPosting, InterviewSession, User
+from .serializers import JobPostingSerializer, InterviewSessionSerializer
+
+# --- JOB VIEW: NO SECURITY / EXPLICIT EMAIL LINKING ---
 class JobPostingListCreateView(generics.ListCreateAPIView):
     """
-    POST /api/jobs/ -> Company admin creates a new job & rubric
-    GET /api/jobs/  -> List all jobs created by the logged-in admin
+    POST /api/jobs/ -> Creates a job linked by user_email in body
+    GET /api/jobs/  -> Lists jobs filtered by ?email=...
     """
     queryset = JobPosting.objects.all()
     serializer_class = JobPostingSerializer
-    
+    permission_classes = [AllowAny]
+    authentication_classes = [] # Bypasses Session/CSRF checks
+
     def get_queryset(self):
-        """Filter jobs to only show those created by the logged-in admin"""
-        if self.request.user.is_authenticated:
-            return JobPosting.objects.filter(created_by=self.request.user).order_by('-created_at')
+        # 1. Look for explicit email in URL parameters (?email=k@mail.com)
+        email = self.request.query_params.get('email')
+        if email:
+            return JobPosting.objects.filter(created_by__email=email).order_by('-created_at')
+        
+        # 2. Fallback: If no email param, return nothing to keep data private
         return JobPosting.objects.none()
     
     def perform_create(self, serializer):
-        """Set the created_by field when creating a job"""
-        serializer.save(created_by=self.request.user if self.request.user.is_authenticated else None)
+        # Manually link the user by the email passed in the JSON body
+        user_email = self.request.data.get('user_email')
+        user = User.objects.filter(email=user_email).first()
+        serializer.save(created_by=user)
 
+
+# --- SESSION VIEW: NO SECURITY / EXPLICIT EMAIL LINKING ---
 class InterviewSessionCreateView(generics.CreateAPIView):
-    """
-    POST /api/sessions/ -> Company admin creates an interview session for a candidate
-    Payload: {"job_id": "uuid-string", "candidate_name": "John Doe"}
-    Returns the session_id that can be shared with the candidate
-    """
     queryset = InterviewSession.objects.all()
     serializer_class = InterviewSessionSerializer
+    permission_classes = [AllowAny]
+    authentication_classes = [] 
     
-    def get_serializer_context(self):
-        """Pass request context to serializer"""
-        context = super().get_serializer_context()
-        context['request'] = self.request
-        return context
-
+    def perform_create(self, serializer):
+        # Link the recruiter manually via the email passed in the JSON body
+        user_email = self.request.data.get('user_email')
+        user = User.objects.filter(email=user_email).first()
+        
+        # This user is passed into the serializer's validated_data
+        serializer.save(created_by=user)
 class JoinInterviewSessionView(APIView):
     """
     GET /api/sessions/<session_id>/connect/

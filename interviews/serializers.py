@@ -8,8 +8,12 @@ class JobPostingSerializer(serializers.ModelSerializer):
     
     class Meta:
         model = JobPosting
-        fields = ['id', 'title', 'stack', 'rubric_template', 'created_at', 'created_by_email', 'created_by_name']
-        read_only_fields = ['id', 'created_at', 'created_by_email', 'created_by_name']
+        # Add 'created_by' to the fields list
+        fields = [
+            'id', 'title', 'stack', 'rubric_template', 
+            'created_at', 'created_by_email', 'created_by_name', 'created_by'
+        ]
+        read_only_fields = ['id', 'created_at', 'created_by_email', 'created_by_name', 'created_by']
 
     def validate_rubric_template(self, value):
         """Ensure the frontend sends the fixed fields we expect."""
@@ -56,13 +60,9 @@ class InterviewSessionSerializer(serializers.ModelSerializer):
         except JobPosting.DoesNotExist:
             raise serializers.ValidationError({"job_id": "Invalid Job ID."})
         
-        # Get the current user from the request context if available
-        request = self.context.get('request')
-        created_by = request.user if request and request.user.is_authenticated else None
-        
+        # validated_data now contains candidate_name AND created_by (passed from view)
         return InterviewSession.objects.create(
             job=job, 
-            created_by=created_by,
             **validated_data
         )
 
