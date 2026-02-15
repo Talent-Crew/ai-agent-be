@@ -76,7 +76,6 @@ class UserSerializer(serializers.ModelSerializer):
 
 
 class UserCreateSerializer(serializers.ModelSerializer):
-    """Serializer for creating company admin users"""
     password = serializers.CharField(write_only=True, required=True, min_length=6)
     
     class Meta:
@@ -85,18 +84,16 @@ class UserCreateSerializer(serializers.ModelSerializer):
         read_only_fields = ['id']
     
     def create(self, validated_data):
-        user = User.objects.create_user(
+        # We explicitly pass fields as keywords to our new custom manager
+        return User.objects.create_user(
             email=validated_data['email'],
-            full_name=validated_data['full_name'],
             password=validated_data['password'],
+            full_name=validated_data['full_name'],
             company_name=validated_data.get('company_name', ''),
-            is_staff=True  # Company admins are staff
+            is_staff=True
         )
-        return user
-
 
 class LoginSerializer(serializers.Serializer):
-    """Serializer for user login"""
     email = serializers.EmailField()
     password = serializers.CharField(write_only=True)
     
@@ -105,16 +102,11 @@ class LoginSerializer(serializers.Serializer):
         password = data.get('password')
         
         if email and password:
-            # Django's authenticate expects username field, but we're using email
-            try:
-                user_obj = User.objects.get(email=email)
-                user = authenticate(username=user_obj.username, password=password)
-            except User.DoesNotExist:
-                raise serializers.ValidationError('Invalid email or password.')
+            # Since USERNAME_FIELD is 'email', authenticate works with email as the username
+            user = authenticate(username=email, password=password)
             
             if not user:
                 raise serializers.ValidationError('Invalid email or password.')
-            
             if not user.is_active:
                 raise serializers.ValidationError('User account is disabled.')
         else:
@@ -122,7 +114,6 @@ class LoginSerializer(serializers.Serializer):
         
         data['user'] = user
         return data
-
 
 class UserSessionSerializer(serializers.ModelSerializer):
     """Serializer for interview sessions with job details - for admin dashboard"""

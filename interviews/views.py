@@ -249,16 +249,16 @@ class UserCreateView(generics.CreateAPIView):
     queryset = User.objects.all()
     serializer_class = UserCreateSerializer
     permission_classes = [AllowAny]  # In production, restrict this or remove after first admin
+    authentication_classes = []  # Bypass CSRF for Signup
 
 
 class LoginView(APIView):
     """
     POST /api/auth/login/
-    Admin login endpoint
-    Payload: {"email": "admin@company.com", "password": "secure123"}
     """
     permission_classes = [AllowAny]
-    
+    authentication_classes = []  # Bypass CSRF for Login
+
     def post(self, request):
         serializer = LoginSerializer(data=request.data)
         if serializer.is_valid():
@@ -271,8 +271,6 @@ class LoginView(APIView):
             })
         
         return Response(serializer.errors, status=400)
-
-
 class LogoutView(APIView):
     """
     POST /api/auth/logout/

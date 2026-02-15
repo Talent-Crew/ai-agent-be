@@ -2,31 +2,48 @@ from django.db import models
 from django.contrib.auth.models import AbstractUser
 import uuid
 
+from django.db import models
+from django.contrib.auth.models import AbstractUser, BaseUserManager # Add BaseUserManager
+import uuid
+
+# --- Add this Manager ---
+class UserManager(BaseUserManager):
+    def create_user(self, email, password=None, **extra_fields):
+        if not email:
+            raise ValueError('The Email field must be set')
+        email = self.normalize_email(email)
+        
+        # This handles the username requirement internally
+        if 'username' not in extra_fields or not extra_fields['username']:
+            extra_fields['username'] = email.split('@')[0] + str(uuid.uuid4())[:8]
+            
+        user = self.model(email=email, **extra_fields)
+        user.set_password(password)
+        user.save(using=self._db)
+        return user
+
+    def create_superuser(self, email, password=None, **extra_fields):
+        extra_fields.setdefault('is_staff', True)
+        extra_fields.setdefault('is_superuser', True)
+        return self.create_user(email, password, **extra_fields)
+
+# --- Update your User Model ---
 class User(AbstractUser):
-    """
-    Custom User model for company admins only
-    Admins create interview sessions and manage the platform
-    """
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     email = models.EmailField(unique=True)
     full_name = models.CharField(max_length=255)
     company_name = models.CharField(max_length=255, blank=True, null=True)
-    
-    # Override username to make it optional
     username = models.CharField(max_length=150, unique=True, blank=True, null=True)
     
+    objects = UserManager() # <--- Tell the model to use your custom manager
+
     USERNAME_FIELD = 'email'
     REQUIRED_FIELDS = ['full_name']
     
     def save(self, *args, **kwargs):
-        # Auto-generate username from email if not provided
         if not self.username:
             self.username = self.email.split('@')[0] + str(self.id)[:8]
         super().save(*args, **kwargs)
-    
-    def __str__(self):
-        return f"{self.full_name} ({self.email})"
-
 class JobPosting(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     title = models.CharField(max_length=255) 
