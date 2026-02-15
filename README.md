@@ -1078,28 +1078,3 @@ docker compose exec web python seed_data.py
 **Insight**: Legitimate candidates start responding within 3-5 seconds. >8 seconds + perfect answer = suspicious.
 
 ---
-
-## Future Enhancements
-
-### **Planned Features**
-- [ ] Multi-language interview support (Spanish, Mandarin, Hindi)
-- [ ] Video recording with facial analysis
-- [ ] Live coding challenges integration
-- [ ] Peer comparison rankings
-- [ ] Automated interview scheduling
-- [ ] White-label custom branding
-- [ ] Integration with ATS systems (Greenhouse, Lever)
-
-### **AI Improvements**
-- [ ] Fine-tune Gemini on domain-specific interviews
-- [ ] Multi-modal evaluation (code + explanation)
-- [ ] Adaptive difficulty (real-time adjustment)
-- [ ] Personality/soft skills assessment
-
----
-
-## License
-Proprietary - All Rights Reserved
-
-## Support
-For questions or issues: support@talentcrew.ai
