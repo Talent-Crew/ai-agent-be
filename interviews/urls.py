@@ -9,6 +9,9 @@ urlpatterns = [
     path('api/sessions/<uuid:session_id>/end/', views.EndInterviewSessionView.as_view(), name='session-end'),
     path('api/sessions/<uuid:session_id>/download-pdf/', views.DownloadPDFView.as_view(), name='download-pdf'),
     
+    # Results
+    path('api/results/', views.InterviewResultsListView.as_view(), name='results-list'),
+    
     # User Management
     path('api/users/', views.UserCreateView.as_view(), name='user-create'),
     

@@ -2,6 +2,7 @@ from .models import InterviewSession
 from rest_framework.views import APIView
 from rest_framework import generics
 from rest_framework.response import Response
+from rest_framework.exceptions import ValidationError
 from .models import JobPosting, InterviewSession, User
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny, IsAuthenticated
@@ -69,7 +70,14 @@ class InterviewSessionCreateView(generics.CreateAPIView):
     def perform_create(self, serializer):
         # Link the recruiter manually via the email passed in the JSON body
         user_email = self.request.data.get('user_email')
+        
+        if not user_email:
+            raise ValidationError({"user_email": "This field is required to link the session to a user."})
+        
         user = User.objects.filter(email=user_email).first()
+        
+        if not user:
+            raise ValidationError({"user_email": f"No user found with email: {user_email}"})
         
         # This user is passed into the serializer's validated_data
         serializer.save(created_by=user)
@@ -252,6 +260,87 @@ class DownloadPDFView(APIView):
         response = FileResponse(open(pdf_path, 'rb'), content_type='application/pdf')
         response['Content-Disposition'] = f'attachment; filename="Interview_Scorecard_{session.candidate_name.replace(" ", "_")}.pdf"'
         return response
+
+
+class InterviewResultsListView(APIView):
+    """
+    GET /api/results/?email=recruiter@company.com
+    List all interview results for sessions created by the specified user.
+    Returns the exact same data structure as EndInterviewSessionView.
+    No authentication required - uses email parameter for filtering.
+    """
+    permission_classes = [AllowAny]
+    authentication_classes = []
+    
+    def get(self, request):
+        email = self.request.query_params.get('email')
+        
+        if not email:
+            return Response({"error": "email parameter required"}, status=400)
+        
+        # Get completed sessions created by this user
+        sessions = InterviewSession.objects.filter(
+            created_by__email=email,
+            is_completed=True
+        ).select_related('job').order_by('-started_at')
+        
+        results = []
+        
+        for session in sessions:
+            # Calculate results the same way as EndInterviewSessionView
+            metrics = PerAnswerMetric.objects.filter(session=session).order_by('timestamp')
+            
+            if not metrics.exists():
+                results.append({
+                    "session_id": str(session.id),
+                    "candidate": session.candidate_name,
+                    "job_title": session.job.title,
+                    "overall_score": 0,
+                    "result_summary": "INCOMPLETE",
+                    "top_weaknesses": [],
+                    "timeline": [],
+                    "pdf_url": None,
+                    "started_at": session.started_at
+                })
+                continue
+            
+            avg_score = metrics.aggregate(Avg('confidence_score'))['confidence_score__avg'] or 0
+            final_score = int(avg_score * 10)
+            
+            timeline = []
+            all_missed = []
+            for m in metrics:
+                missed = m.technical_concepts_missed or []
+                all_missed.extend(missed)
+                timeline.append({
+                    "id": m.id,
+                    "question": m.question_asked,
+                    "answer": m.candidate_answer,
+                    "score": m.confidence_score,
+                    "critique": m.critique or "No specific critique available.",
+                    "ideal_answer": m.ideal_answer or "No ideal answer provided.",
+                    "concepts_missed": missed
+                })
+            
+            result_summary = "HIRE" if final_score >= 70 else "REJECT"
+            
+            results.append({
+                "session_id": str(session.id),
+                "candidate": session.candidate_name,
+                "job_title": session.job.title,
+                "overall_score": final_score,
+                "result_summary": result_summary,
+                "top_weaknesses": list(set(all_missed))[:5],
+                "timeline": timeline,
+                "pdf_url": f"/api/sessions/{session.id}/download-pdf/" if session.summary_pdf else None,
+                "started_at": session.started_at
+            })
+        
+        return Response({
+            "email": email,
+            "total_results": len(results),
+            "results": results
+        })
 
 
 # ====== Authentication & User Management Views ======
