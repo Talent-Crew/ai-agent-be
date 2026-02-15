@@ -11,6 +11,8 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
 
   centrifugo:
     image: centrifugo/centrifugo:v5
@@ -30,6 +32,7 @@ services:
     container_name: talentcrew-web
     volumes:
       - .:/app
+      - static_volume:/app/staticfiles
     ports:
       - "8000:8000"
     environment:
@@ -47,3 +50,7 @@ services:
         condition: service_healthy
       centrifugo:
         condition: service_started
+
+volumes:
+  postgres_data:
+  static_volume:
