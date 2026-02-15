@@ -1,7 +1,10 @@
 # TalentCrew - AI-Powered Technical Interview Platform
 
+> **⚡ 24-Hour MVP** | This is a rapid prototype built in 24 hours with simplified authentication (no permission classes, no CSRF). Uses email-based filtration instead of token authorization. See [Security & Authentication Model](#️-important-security--authentication-model) for details.
+
 ## 📋 Table of Contents
 - [Overview](#overview)
+- [⚠️ Important: Security & Authentication Model](#️-important-security--authentication-model)
 - [Core Features](#core-features)
 - [Architecture](#architecture)
 - [Detailed Feature Documentation](#detailed-feature-documentation)
@@ -23,6 +26,61 @@
 ## Overview
 
 TalentCrew is an advanced AI-powered interview platform that conducts real-time technical interviews using voice and text interactions. The system uses Google's Gemini AI for intelligent questioning, Deepgram for speech recognition and synthesis, and implements sophisticated anti-cheating mechanisms.
+
+---
+
+## ⚠️ Important: Security & Authentication Model
+
+**🚀 Built in 24 Hours - MVP Architecture**
+
+This platform was developed as a rapid prototype in **24 hours** and uses a **simplified authentication model** for quick deployment and testing:
+
+### Authentication Approach
+- **No `IsAuthenticated` permission classes** on most endpoints
+- **No CSRF protection** enabled (for easier frontend integration during development)
+- **Email-based filtration** instead of token-based authorization
+- **Public access with data isolation** - anyone can access endpoints, but data is filtered by user email
+
+### How Access Works
+
+1. **Sign Up / Login** - Create an account and log in to get a session cookie:
+   ```http
+   POST /api/users/          # Sign up
+   POST /api/auth/login/     # Login (establishes session)
+   ```
+
+2. **Access Your Data** - Use your email to filter your resources:
+   ```http
+   GET /api/jobs/?email=your@email.com           # Your jobs
+   GET /api/results/?email=your@email.com        # Your interview results
+   ```
+
+3. **Create Resources** - Pass your email in the request body:
+   ```json
+   POST /api/jobs/
+   {
+     "title": "Python Developer",
+     "user_email": "your@email.com",
+     ...
+   }
+   ```
+
+### Why This Architecture?
+
+✅ **Speed**: No complex JWT/OAuth implementation needed for MVP  
+✅ **Simplicity**: Frontend doesn't need token management  
+✅ **Testability**: Easy to test with tools like Postman/curl  
+✅ **Data Isolation**: Users only see their own data via email filtering  
+
+### Production Recommendations
+
+For production deployment, you should add:
+- ✋ Proper `IsAuthenticated` permission classes
+- ✋ CSRF protection enabled
+- ✋ JWT/OAuth token authentication
+- ✋ Rate limiting and API throttling
+- ✋ Input validation and sanitization
+- ✋ HTTPS enforcement
 
 ---
 
@@ -911,32 +969,39 @@ class EvidenceSnippet(models.Model):
 
 ## API Endpoints
 
+**Authentication Model**: Most endpoints use email-based filtration instead of token authorization. See [Security & Authentication Model](#️-important-security--authentication-model) section.
+
 ### **Job Management**
 ```http
-POST   /api/jobs/               # Create job posting
-GET    /api/jobs/?email=...     # List jobs by recruiter email
+POST   /api/jobs/               # Create job posting (requires user_email in body)
+GET    /api/jobs/?email=...     # List jobs by recruiter email (no auth, filtered by email param)
 ```
 
 ### **Session Management**
 ```http
-POST   /api/sessions/                          # Create interview session
-GET    /api/sessions/{uuid}/connect/           # Get WebSocket token
-POST   /api/sessions/{uuid}/end/               # End interview & generate PDF
-GET    /api/sessions/{uuid}/download-pdf/      # Download scorecard PDF
+POST   /api/sessions/                          # Create interview session (requires user_email in body)
+GET    /api/sessions/{uuid}/connect/           # Get WebSocket token (no auth)
+POST   /api/sessions/{uuid}/end/               # End interview & generate PDF (no auth)
+GET    /api/sessions/{uuid}/download-pdf/      # Download scorecard PDF (no auth)
 ```
 
-### **Authentication**
+### **Results**
+```http
+GET    /api/results/?email=...                 # List all interview results (no auth, filtered by email param)
+```
+
+### **Authentication** (Session-based, with CSRF disabled)
 ```http
 POST   /api/users/              # Sign up (create recruiter account)
-POST   /api/auth/login/         # Login
-POST   /api/auth/logout/        # Logout
-GET    /api/auth/me/            # Get current user details
-GET    /api/auth/sessions/      # Get all sessions for logged-in recruiter
+POST   /api/auth/login/         # Login (establishes session cookie)
+POST   /api/auth/logout/        # Logout (requires session)
+GET    /api/auth/me/            # Get current user details (requires session)
+GET    /api/auth/sessions/      # Get all sessions for logged-in recruiter (requires session)
 ```
 
 ### **WebSocket**
 ```
-WS     ws://host/ws/interview/{session_id}/    # Real-time interview connection
+WS     ws://host/ws/interview/{session_id}/    # Real-time interview connection (no auth)
 ```
 
 ---
